@@ -9,7 +9,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Settings2 } from "lucide-react";
-import { 
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -30,11 +30,11 @@ interface GraphSettingsProps {
 }
 
 export const defaultSettings: GraphSettings = {
-  linkDistance: 150,    // Increased for better spacing with larger graph
-  linkStrength: 0.3,    // Decreased for more flexibility
-  chargeStrength: -1.5, // Stronger repulsion for better node separation
-  gravity: 0.2,         // Moderate gravity to keep the graph centered
-  velocityDecay: 0.3,   // Allows for more dynamic movement
+  linkDistance: 120,    // Default distance between connected nodes
+  linkStrength: 0.3,    // Moderate link strength for flexibility
+  chargeStrength: -1,   // Default repulsion (will be multiplied by -100)
+  gravity: 0.1,         // Light gravitational pull to center
+  velocityDecay: 0.4,   // Moderate damping
 };
 
 interface SettingSliderProps {
@@ -104,7 +104,7 @@ export function GraphSettings({ settings, onSettingsChange }: GraphSettingsProps
             value={localSettings.linkDistance}
             onChange={(value) => handleChange("linkDistance", value)}
             min={50}
-            max={400}
+            max={300}
             step={10}
           />
           <SettingSlider
@@ -112,17 +112,17 @@ export function GraphSettings({ settings, onSettingsChange }: GraphSettingsProps
             tooltip="How strongly nodes are pulled together by their connections. Higher values make the graph more compact."
             value={localSettings.linkStrength}
             onChange={(value) => handleChange("linkStrength", value)}
-            min={0}
-            max={2}
+            min={0.1}
+            max={1}
             step={0.1}
           />
           <SettingSlider
             label="Charge Strength"
-            tooltip="How strongly nodes repel each other. More negative values push nodes apart more."
+            tooltip="How strongly nodes repel each other. Higher values (more negative) push nodes apart more."
             value={localSettings.chargeStrength}
             onChange={(value) => handleChange("chargeStrength", value)}
             min={-2}
-            max={0}
+            max={-0.1}
             step={0.1}
           />
           <SettingSlider
@@ -131,7 +131,7 @@ export function GraphSettings({ settings, onSettingsChange }: GraphSettingsProps
             value={localSettings.gravity}
             onChange={(value) => handleChange("gravity", value)}
             min={0}
-            max={1}
+            max={0.5}
             step={0.05}
           />
           <SettingSlider
@@ -139,9 +139,9 @@ export function GraphSettings({ settings, onSettingsChange }: GraphSettingsProps
             tooltip="How quickly node movement slows down. Higher values make the graph more stable but less dynamic."
             value={localSettings.velocityDecay}
             onChange={(value) => handleChange("velocityDecay", value)}
-            min={0}
-            max={1}
-            step={0.05}
+            min={0.1}
+            max={0.8}
+            step={0.1}
           />
         </div>
       </DialogContent>

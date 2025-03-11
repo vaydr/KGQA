@@ -37,30 +37,29 @@ export function GraphViewer({ graph }: GraphViewerProps) {
 
   const handleSettingsChange = useCallback((newSettings: GraphSettingsType) => {
     setSettings(newSettings);
+
     if (fgRef.current) {
       const fg = fgRef.current;
+      const d3 = fg.d3Force();
 
-      // Get the simulation
-      const simulation = fg.d3Force();
+      // Update link force
+      d3.force('link')
+        .distance(newSettings.linkDistance)
+        .strength(newSettings.linkStrength);
 
-      if (!simulation) return;
+      // Update charge force (repulsion between nodes)
+      d3.force('charge')
+        .strength(newSettings.chargeStrength * -100); // Make repulsion stronger and negative
 
-      // Update forces
-      simulation.force('link')
-        ?.distance(newSettings.linkDistance)
-        ?.strength(newSettings.linkStrength);
+      // Update center force (gravity towards center)
+      d3.force('center')
+        .strength(newSettings.gravity);
 
-      simulation.force('charge')
-        ?.strength(newSettings.chargeStrength * 100); // Multiply for more noticeable effect
+      // Update decay
+      d3.velocityDecay(newSettings.velocityDecay);
 
-      simulation.force('center')
-        ?.strength(newSettings.gravity);
-
-      // Set simulation parameters
-      simulation.velocityDecay(newSettings.velocityDecay);
-
-      // Reheat the simulation
-      simulation.alpha(1).restart();
+      // Reheat and restart the simulation
+      d3.alpha(1).restart();
     }
   }, []);
 
@@ -92,6 +91,31 @@ export function GraphViewer({ graph }: GraphViewerProps) {
         onNodeDragEnd={(node: ForceGraphNode) => {
           node.fx = node.x;
           node.fy = node.y;
+        }}
+        onEngineStop={() => {
+          // Once the simulation stops, update all forces with current settings
+          const d3 = fgRef.current?.d3Force();
+          if (d3) {
+            d3.force('link')
+              .distance(settings.linkDistance)
+              .strength(settings.linkStrength);
+            d3.force('charge')
+              .strength(settings.chargeStrength * -100);
+            d3.force('center')
+              .strength(settings.gravity);
+            d3.velocityDecay(settings.velocityDecay);
+          }
+        }}
+        d3Force={(d3) => {
+          // Initialize forces with default settings
+          d3.force('link')
+            .distance(settings.linkDistance)
+            .strength(settings.linkStrength);
+          d3.force('charge')
+            .strength(settings.chargeStrength * -100);
+          d3.force('center')
+            .strength(settings.gravity);
+          d3.velocityDecay(settings.velocityDecay);
         }}
       />
     </div>
