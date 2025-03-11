@@ -5,12 +5,13 @@ import { QuestionPanel } from "@/components/question-panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
+import type { Graph } from "@shared/schema";
 
 export default function GraphView() {
   const { id } = useParams<{ id: string }>();
   const graphId = id === "sample" ? "sample" : parseInt(id);
 
-  const { data: graph, isLoading, error } = useQuery({
+  const { data: graph, isLoading, error } = useQuery<Graph>({
     queryKey: [`/api/graphs/${graphId}`],
   });
 
@@ -28,6 +29,17 @@ export default function GraphView() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>Failed to load graph data</AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  if (!graph) {
+    return (
+      <div className="p-8">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>Graph not found</AlertDescription>
         </Alert>
       </div>
     );
