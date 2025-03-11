@@ -67,8 +67,8 @@ export function QuestionPanel({ graphId }: QuestionPanelProps) {
         </div>
 
         <div className="space-y-4">
-          {questions?.map((q) => (
-            <div key={q.id} className="p-3 bg-muted rounded-lg">
+          {questions?.map((q, index) => (
+            <div key={index} className="p-3 bg-muted rounded-lg">
               <p className="font-medium">{q.text}</p>
               {q.answer && (
                 <>
