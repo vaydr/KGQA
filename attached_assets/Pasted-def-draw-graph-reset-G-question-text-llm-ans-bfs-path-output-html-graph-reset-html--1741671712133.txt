@@ -1,0 +1,637 @@
+def draw_graph_reset(G, question_text, llm_ans, bfs_path, output_html="graph_reset.html"):
+    """
+      1) Assigns each edge a color via a cmap based on its 'score'.
+      2) Displays reasoning paths in #arrowBox, BFS edges thick via a new checkbox.
+      3) Supports arrow-click toggling an edge to pink or reverting it.
+      4) Adds a color legend & filter in top-left; edges outside [min..max] => 30%-gray.
+      5) Color-picker for the canvas background.
+      6) BFS arrow hover uses G[u][v].get('title') or 'Score: {score}' fallback, stored in e.data.title.
+    """
+    import networkx as nx
+    import seaborn as sns
+    import math
+    import json
+    from pyvis.network import Network
+
+    # ------------------- 1) Build colormap & store edge info -------------------
+    all_scores = [edata.get("score", 0.0) for _, _, edata in G.edges(data=True)]
+    if not all_scores:
+        min_score, max_score = 0.0, 1.0
+    else:
+        min_score, max_score = min(all_scores), max(all_scores)
+
+    num_steps = 256
+    cmap = sns.color_palette("rainbow", num_steps).as_hex()
+
+    def score_to_color(s):
+        if math.isclose(min_score, max_score):
+            return cmap[num_steps // 2]
+        frac = (s - min_score) / (max_score - min_score)
+        idx = max(0, min(num_steps - 1, int(frac * (num_steps - 1))))
+        return cmap[idx]
+
+    is_directed = G.is_directed()
+
+    # For BFS snippet: "A___B" -> {score:..., color:...}
+    edge_dict = {}
+    for u, v, data in G.edges(data=True):
+        s = data.get("score", 0.0)
+        c = score_to_color(s)
+        if is_directed:
+            key = f"{u}___{v}"
+        else:
+            a, b = (u, v) if u < v else (v, u)
+            key = f"{a}___{b}"
+        edge_dict[key] = {"score": s, "color": c}
+
+    edge_colors_js = json.dumps(edge_dict)
+    colormap_js    = json.dumps(cmap)
+    min_score_js   = json.dumps(min_score)
+    max_score_js   = json.dumps(max_score)
+    directed_js    = "true" if is_directed else "false"
+
+    # ------------------- 2) PyVis network + store BFS hover text in e.data.title ----------------
+    net = Network(
+        height="750px",
+        width="100%",
+        notebook=False,
+        cdn_resources="remote",
+        directed=is_directed
+    )
+    net.from_nx(G)
+
+    # Ensure base width=2 for all edges; fill e.data.title with our hover text
+    for e in net.edges:
+        e['width'] = 2
+
+        u = e['from']
+        v = e['to']
+        # We'll store BFS tooltip in e['data'] sub-dict
+        if 'data' not in e:
+            e['data'] = {}
+        if is_directed:
+            if G.has_edge(u, v):
+                data = G[u][v]
+                # If G[u][v] has 'title', use it; else fallback
+                t = data.get("title", None)
+                if not t:
+                    sc = data.get("score", 0.0)
+                    t = f"Score: {sc}"
+                e['data']['title'] = t
+        else:
+            a, b = (u, v) if u < v else (v, u)
+            if G.has_edge(a, b):
+                data = G[a][b]
+                t = data.get("title", None)
+                if not t:
+                    sc = data.get("score", 0.0)
+                    t = f"Score: {sc}"
+                e['data']['title'] = t
+
+    net.set_options("""
+    {
+      "edges": {
+        "arrows": {"to": {"enabled": true, "type": "arrow", "scaleFactor": 1.5}},
+        "color": {"inherit": true}
+      },
+      "physics": {
+        "enabled": true,
+        "solver": "forceAtlas2Based",
+        "stabilization": {"enabled": true, "iterations": 300}
+      }
+    }
+    """)
+
+    # Dump PyVis HTML
+    net.save_graph(output_html)
+    with open(output_html, "r", encoding="utf-8") as f:
+        html_code = f.read()
+
+    # Freeze physics after 300 iterations
+    freeze_js = """
+network.once("stabilizationIterationsDone", function() {
+  network.setOptions({ physics: { enabled: true } });
+});
+"""
+    replaced_html = html_code.replace(
+        "network = new vis.Network(container, data, options);",
+        "network = new vis.Network(container, data, options);\n" + freeze_js,
+        1
+    )
+
+    # BFS path is a dict: {end_node -> list_of_nodes_in_path}
+    bfs_path_js = json.dumps(bfs_path)
+    question_js = json.dumps(question_text)
+    answer_js   = json.dumps(llm_ans)
+
+    # Graph metrics
+    def graph_metrics(G):
+        G_und = G.to_undirected()
+        nc = nx.number_connected_components(G_und)
+        try:
+            apl = sum(nx.average_shortest_path_length(G_und.subgraph(c)) * len(c)
+                      for c in nx.connected_components(G_und)) / len(G_und)
+        except:
+            apl = -1
+        try:
+            diam = nx.diameter(G_und)
+        except:
+            diam = -1
+        try:
+            deg = sum(dict(G.degree()).values()) / len(G_und)
+        except:
+            deg = -1
+        return {
+            "num_components": nc,
+            "avg_path_length": apl,
+            "diameter": diam,
+            "avg_degree": deg
+        }
+
+    metrics = graph_metrics(G)
+    metrics_js = json.dumps(metrics)
+
+    # ------------------- 3) BFS snippet reading e.data.title instead of e.title ----------------
+    injection_snippet = f"""
+<style>
+  /* Layout & arrow toggles (kept minimal) */
+  #containerWrap {{
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+  }}
+  #canvasWrap {{
+    flex: 1;
+    position: relative;
+  }}
+  #arrowBox {{
+    width: 300px;
+    margin-left: 8px;
+    border: 1px solid #ccc;
+    padding: 8px;
+    overflow-y: auto;
+    height: 750px;
+    resize: horizontal;
+  }}
+  #qaBox {{
+    margin-top: 8px;
+    border: 1px solid #ccc;
+    padding: 8px;
+    min-height: 100px;
+    overflow-y: auto;
+    resize: vertical;
+  }}
+  .arrow {{
+    text-decoration: none;
+    cursor: pointer;
+    margin: 0 4px;
+  }}
+  .arrow:hover {{
+    color: gray;
+    transition: none;
+  }}
+  .arrow[data-tooltip] {{
+    position: relative;
+  }}
+  .arrow[data-tooltip]:hover::after {{
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 0;
+    top: -1.5em;
+    background: #333;
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    white-space: nowrap;
+    z-index: 9999;
+  }}
+  .heading {{
+    font-size: 2em;
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: #0000ff;
+  }}
+  /* The color legend & filtering handles */
+  #scoreLegend {{
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 200px;
+    height: 20px;
+    border: 1px solid #666;
+    border-radius: 3px;
+    cursor: crosshair;
+  }}
+  #scoreLegendOverlay {{
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 20px;
+    background: repeating-linear-gradient(
+        45deg,
+        rgba(120, 120, 120, 0.3) 0px,
+        rgba(120, 120, 120, 0.3) 5px,
+        transparent 2px,
+        transparent 10px
+    );
+    pointer-events: none;
+  }}
+  .handleBar {{
+    position: absolute;
+    top: 0;
+    width: 4px;
+    height: 20px;
+    background: #fff;
+    border: 1px solid #000;
+    cursor: ew-resize;
+    margin-left: -2px;
+  }}
+  #scoreLegendTip {{
+    position: absolute;
+    top: -2em;
+    left: 0px;
+    background: #333;
+    color: #fff;
+    padding: 2px 6px;
+    font-size: 0.8em;
+    border-radius: 4px;
+    white-space: nowrap;
+    display: none;
+  }}
+
+  /* color picker & BFS checkbox container */
+  #colorPickerArea {{
+    display: inline-block; 
+    margin-left: 10px;
+    vertical-align: middle;
+  }}
+  #bgColorSquare {{
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    margin-top: 4px;
+    border: 1px solid #000;
+    cursor: pointer;
+    margin-left: 6px;
+  }}
+  #colorModal {{
+    display: none;
+    position: fixed;
+    top: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 300px;
+    background: #fafafa;
+    border: 2px solid #333;
+    border-radius: 6px;
+    padding: 12px;
+    z-index: 99999;
+  }}
+  .sliderRow {{
+    margin-bottom: 8px;
+  }}
+  #colorPreview {{
+    width: 80%;
+    height: 30px;
+    margin: 8px auto;
+    border: 1px solid #000;
+    background: #ffffff;
+  }}
+  .applyBtn {{
+    display: inline-block;
+    margin-top: 8px;
+    padding: 6px 12px;
+    border: 1px solid #666;
+    background: #ddd;
+    cursor: pointer;
+  }}
+</style>
+
+<script>
+(function(){{
+   var BFS_PATH   = {bfs_path_js};
+   var questionTxt= {question_js};
+   var answerTxt  = {answer_js};
+   var metrics    = {metrics_js};
+
+   var edgeData   = {edge_colors_js}; // "A___B":{{score,color}}
+   var colorMap   = {colormap_js};
+   var minScore   = {min_score_js};
+   var maxScore   = {max_score_js};
+   var isDirected = {directed_js};
+
+   var networkContainer = document.getElementById("mynetwork");
+   var bodyEl = networkContainer.parentNode;
+
+   var containerWrap = document.createElement("div");
+   containerWrap.id = "containerWrap";
+   var canvasWrap = document.createElement("div");
+   canvasWrap.id = "canvasWrap";
+
+   bodyEl.insertBefore(containerWrap, networkContainer);
+   containerWrap.appendChild(canvasWrap);
+   canvasWrap.appendChild(networkContainer);
+
+   var arrowBox = document.createElement("div");
+   arrowBox.id = "arrowBox";
+   containerWrap.appendChild(arrowBox);
+
+   var qaBox = document.createElement("div");
+   qaBox.id = "qaBox";
+   bodyEl.appendChild(qaBox);
+
+   // Q & A
+   qaBox.innerHTML = "<div class='heading'>Q/A</div>"
+     + "<p><strong>Question:</strong> " + questionTxt + "</p>"
+     + "<p><strong>Answer:</strong> " + answerTxt + "</p>";
+
+   // BFS edges storage
+   var BFS_EDGES = [];
+
+   // BFS arrow building => read e.data.title
+   function buildPathWithEdges(path){{
+     if(!Array.isArray(path)|| path.length<2) return JSON.stringify(path);
+     var result = path[0];
+     for(var i=0; i<path.length-1; i++){{
+       var A= path[i], B= path[i+1];
+       var eId= edges.getIds().find(function(id){{
+         var ed = edges.get(id);
+         return ed && ((ed.from===A && ed.to===B)||(ed.from===B && ed.to===A));
+       }});
+       var arrowColor= "gray";
+       var hoverTxt  = "";
+       if(eId){{
+         var eObj = edges.get(eId);
+         if(eObj){{
+           if(eObj.color && eObj.color.color) {{
+             arrowColor = eObj.color.color;
+           }}
+           // KEY: read eObj.data.title, not eObj.title
+           if(eObj.data && eObj.data.title){{
+             hoverTxt = eObj.data.title;
+           }}
+         }}
+       }}
+       result += " <span class='arrow' style='color:"+arrowColor+";' data-edgeid='"+(eId||"")+"' data-tooltip='"+ hoverTxt +"'>&#8594;</span> " + B;
+     }}
+     return result;
+   }}
+
+   function addBfsEdge(A,B){{
+     var eId= edges.getIds().find(function(id){{
+       var ed= edges.get(id);
+       return ed && ((ed.from===A && ed.to===B)||(ed.from===B && ed.to===A));
+     }});
+     if(eId) BFS_EDGES.push(eId);
+   }}
+
+   // BFS: fill arrowBox
+   arrowBox.innerHTML = "<div class='heading'>Reasoning Paths</div>";
+   var BFS_KEYS= Object.keys(BFS_PATH);
+   if(BFS_KEYS.length===0){{
+     arrowBox.innerHTML += "<p>No end nodes found.</p>";
+   }} else {{
+     BFS_KEYS.forEach(function(tn){{
+       var path= BFS_PATH[tn];
+       if(!Array.isArray(path)|| path.length<2){{
+         arrowBox.innerHTML += "<p><strong>"+tn+"</strong>: No path found</p>";
+       }} else {{
+         arrowBox.innerHTML += "<p><strong>"+tn+"</strong>: " + buildPathWithEdges(path) + "</p>";
+       }}
+     }});
+     BFS_KEYS.forEach(function(tn){{
+       var p= BFS_PATH[tn];
+       if(p&&p.length>1){{
+         for(var i=0;i<p.length-1;i++) addBfsEdge(p[i],p[i+1]);
+       }}
+     }});
+   }}
+
+   // Graph metrics
+   arrowBox.innerHTML += "<div class='heading'>Graph Metrics</div>"
+     + "<p><strong>Number of Components:</strong> "+ metrics.num_components +"</p>"
+     + "<p><strong>Average Path Length:</strong> "+ metrics.avg_path_length.toFixed(3) +"</p>"
+     + "<p><strong>Diameter:</strong> "+ metrics.diameter +"</p>"
+     + "<p><strong>Average Degree:</strong> "+ metrics.avg_degree.toFixed(3) +"</p>";
+
+   // BFS thickness control
+   function setBfsEdgesThick(isThick){{
+     var w= isThick? 20: 2;
+     var z= isThick? 9999: 1;
+     var updates= [];
+     BFS_EDGES.forEach(function(eid){{
+       var ed= edges.get(eid);
+       if(ed) updates.push({{id:eid, width:w, color:ed.color, zIndex:z}});
+     }});
+     edges.update(updates);
+   }}
+   // start thick
+   setTimeout(function(){{ setBfsEdgesThick(true); }},100);
+
+   // Remove old "canvas click => BFS revert" logic
+
+   // Arrow toggling => pink or revert
+   document.addEventListener("click",function(ev){{
+     var arrow= ev.target.closest(".arrow");
+     if(!arrow)return;
+     ev.stopPropagation();
+     var eId= arrow.getAttribute("data-edgeid");
+     if(!eId)return;
+     var current= edges.get(eId);
+     if(!current)return;
+     var oldColor= (current.color && current.color.color) || "#121212";
+     if(oldColor.toLowerCase()==="#ff00ff"){{
+       var revertTo= arrow.getAttribute("data-oldcolor")||"rgba(204,204,204,0.3)";
+       edges.update([{{id:eId, color:{{color: revertTo}}}}]);
+       arrow.style.color= revertTo;
+     }} else {{
+       if(!arrow.hasAttribute("data-oldcolor")) arrow.setAttribute("data-oldcolor", oldColor);
+       edges.update([{{id:eId, color:{{color:"#FF00FF"}}}}]);
+       arrow.style.color="#FF00FF";
+     }}
+   }},true);
+
+   // Draggable legend & filter
+   var legendWidth=200;
+   var legend= document.createElement("div");
+   legend.id= "scoreLegend";
+   canvasWrap.appendChild(legend);
+
+   var overlay= document.createElement("div");
+   overlay.id= "scoreLegendOverlay";
+   legend.appendChild(overlay);
+
+   var handleLeft= document.createElement("div");
+   handleLeft.className= "handleBar";
+   legend.appendChild(handleLeft);
+
+   var handleRight= document.createElement("div");
+   handleRight.className= "handleBar";
+   legend.appendChild(handleRight);
+
+   var legendTip= document.createElement("div");
+   legendTip.id= "scoreLegendTip";
+   legend.appendChild(legendTip);
+
+   var draggingHandle= null;
+   var minFrac=0.0, maxFrac=1.0;
+
+   function updateHandles(){{
+     var lpx= legendWidth*minFrac;
+     var rpx= legendWidth*maxFrac;
+     if(rpx<lpx){{var tmp=lpx;lpx=rpx;rpx=tmp;}}
+     handleLeft.style.left= (legendWidth*minFrac)+"px";
+     handleRight.style.left=(legendWidth*maxFrac)+"px";
+     overlay.style.left= lpx+"px";
+     overlay.style.width=(rpx-lpx)+"px";
+   }}
+   function applyFilter(){{
+     var lo= minScore + minFrac*(maxScore-minScore);
+     var hi= minScore + maxFrac*(maxScore-minScore);
+     var eids= edges.getIds();
+     var ups= [];
+     eids.forEach(function(eid){{
+       var ed= edges.get(eid);
+       if(!ed)return;
+       var key;
+       if(isDirected==="true"){{
+         key= ed.from+"___"+ed.to;
+       }} else {{
+         var a= ed.from<ed.to? ed.from:ed.to;
+         var b= ed.from<ed.to? ed.to  :ed.from;
+         key= a+"___"+b;
+       }}
+       var info= edgeData[key]||{{score:0.0,color:"#ccc"}};
+       var w= ed.width||2;
+       var z= ed.zIndex||1;
+       if(info.score>=lo && info.score<=hi){{
+         ups.push({{id:eid,width:w,color:{{color: info.color}},zIndex:z}});
+       }} else {{
+         ups.push({{id:eid,width:w,color:{{color:"rgba(204,204,204,0.3)"}},zIndex:z}});
+       }}
+     }});
+     edges.update(ups);
+   }}
+
+   handleLeft.addEventListener("mousedown",function(){{draggingHandle="left";}});
+   handleRight.addEventListener("mousedown",function(){{draggingHandle="right";}});
+   document.addEventListener("mousemove",function(e){{
+     if(!draggingHandle){{
+       var rect= legend.getBoundingClientRect();
+       var x= e.clientX- rect.left;
+       if(x<0||x>legendWidth){{ legendTip.style.display="none";return;}}
+       var frac= x/legendWidth;
+       var val= minScore+ frac*(maxScore-minScore);
+       legendTip.style.display="block";
+       legendTip.style.left=(x-20)+"px";
+       legendTip.innerHTML= val.toFixed(4);
+       return;
+     }}
+     e.preventDefault();
+     var bounding= legend.getBoundingClientRect();
+     var xx= e.clientX- bounding.left;
+     if(xx<0) xx=0; if(xx>legendWidth) xx=legendWidth;
+     var f= xx/legendWidth;
+     if(draggingHandle==="left") minFrac=f; else maxFrac=f;
+     updateHandles();
+     applyFilter();
+   }});
+   document.addEventListener("mouseup",function(){{draggingHandle=null;}});
+   var stepCount= colorMap.length;
+   var gradStops= colorMap.map(function(col,idx){{
+     var pct= (100*idx/(stepCount-1)).toFixed(1);
+     return col+" "+pct+"%";
+   }}).join(", ");
+   legend.style.background="linear-gradient(to right,"+gradStops+")";
+   updateHandles();
+   applyFilter();
+
+   // BFS thickness checkbox + color picker
+   var colorPickerArea= document.createElement("span");
+   colorPickerArea.id= "colorPickerArea";
+   legend.parentNode.appendChild(colorPickerArea);
+
+   var bfsCheckbox= document.createElement("input");
+   bfsCheckbox.type= "checkbox";
+   bfsCheckbox.id= "bfsThickCheckbox";
+   bfsCheckbox.checked= true;
+   var bfsLabel= document.createElement("label");
+   bfsLabel.htmlFor= "bfsThickCheckbox";
+   bfsLabel.textContent= " Keep BFS Edges Thick";
+   colorPickerArea.appendChild(bfsCheckbox);
+   colorPickerArea.appendChild(bfsLabel);
+
+   bfsCheckbox.addEventListener("change",function(e){{
+     setBfsEdgesThick(e.target.checked);
+     // re-apply filter so out-of-range BFS edges remain 30% gray if checkbox on
+     applyFilter();
+   }});
+
+   // color square
+   var colorSquare= document.createElement("div");
+   colorSquare.id= "bgColorSquare";
+   colorSquare.style.background= "#ffffff";
+   colorPickerArea.appendChild(colorSquare);
+
+   var colorModal= document.createElement("div");
+   colorModal.id= "colorModal";
+   colorModal.innerHTML=`
+     <h3>Pick Canvas Color</h3>
+     <div class="sliderRow">
+       R: <input type="range" id="rSlider" min="0" max="255" value="255"/>
+     </div>
+     <div class="sliderRow">
+       G: <input type="range" id="gSlider" min="0" max="255" value="255"/>
+     </div>
+     <div class="sliderRow">
+       B: <input type="range" id="bSlider" min="0" max="255" value="255"/>
+     </div>
+     <div id="colorPreview"></div>
+     <div class="applyBtn" id="applyColorBtn">Apply!</div>
+   `;
+   document.body.appendChild(colorModal);
+
+   var rSlider= colorModal.querySelector("#rSlider");
+   var gSlider= colorModal.querySelector("#gSlider");
+   var bSlider= colorModal.querySelector("#bSlider");
+   var preview= colorModal.querySelector("#colorPreview");
+   var applyBtn= colorModal.querySelector("#applyColorBtn");
+
+   function updatePreview(){{
+     var r= parseInt(rSlider.value);
+     var g= parseInt(gSlider.value);
+     var b= parseInt(bSlider.value);
+     preview.style.background= "rgb("+r+","+g+","+b+")";
+   }}
+   [rSlider,gSlider,bSlider].forEach(function(sl) {{
+     sl.addEventListener("input", updatePreview);
+   }});
+   updatePreview();
+
+   colorSquare.addEventListener("click",function(){{
+     colorModal.style.display="block";
+   }});
+   applyBtn.addEventListener("click",function(){{
+     var r= parseInt(rSlider.value);
+     var g= parseInt(gSlider.value);
+     var b= parseInt(bSlider.value);
+     var c= "rgb("+r+","+g+","+b+")";
+     document.getElementById("mynetwork").style.background= c;
+     colorSquare.style.background= c;
+     colorModal.style.display="none";
+   }});
+}})();
+</script>
+"""
+
+    # Final HTML
+    if "</body>" in replaced_html:
+        final_html = replaced_html.replace("</body>", injection_snippet + "\n</body>", 1)
+    else:
+        final_html = replaced_html + "\n" + injection_snippet
+
+    with open(output_html, "w", encoding="utf-8") as f:
+        f.write(final_html)
+
+    return output_html
