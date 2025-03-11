@@ -37,30 +37,6 @@ export function GraphViewer({ graph }: GraphViewerProps) {
 
   const handleSettingsChange = useCallback((newSettings: GraphSettingsType) => {
     setSettings(newSettings);
-
-    if (fgRef.current) {
-      const fg = fgRef.current;
-      const d3 = fg.d3Force();
-
-      // Update link force
-      d3.force('link')
-        .distance(newSettings.linkDistance)
-        .strength(newSettings.linkStrength);
-
-      // Update charge force (repulsion between nodes)
-      d3.force('charge')
-        .strength(newSettings.chargeStrength * -100); // Make repulsion stronger and negative
-
-      // Update center force (gravity towards center)
-      d3.force('center')
-        .strength(newSettings.gravity);
-
-      // Update decay
-      d3.velocityDecay(newSettings.velocityDecay);
-
-      // Reheat and restart the simulation
-      d3.alpha(1).restart();
-    }
   }, []);
 
   return (
@@ -84,6 +60,33 @@ export function GraphViewer({ graph }: GraphViewerProps) {
         warmupTicks={100}
         cooldownTicks={50}
         enableNodeDrag={true}
+        d3Force={(d3) => {
+          // Configure link force with constant functions
+          const linkForce = d3.force('link');
+          if (linkForce) {
+            linkForce
+              .distance(settings.linkDistance)
+              .strength(settings.linkStrength);
+          }
+
+          // Configure charge force (node repulsion)
+          const chargeForce = d3.force('charge');
+          if (chargeForce) {
+            chargeForce.strength(settings.chargeStrength * -100);
+          }
+
+          // Configure center force
+          const centerForce = d3.force('center');
+          if (centerForce) {
+            centerForce.strength(settings.gravity);
+          }
+
+          // Set simulation parameters
+          d3.velocityDecay(settings.velocityDecay);
+
+          // Reheat simulation
+          d3.alpha(1).restart();
+        }}
         onNodeDrag={(node: ForceGraphNode) => {
           node.fx = node.x;
           node.fy = node.y;
@@ -91,31 +94,6 @@ export function GraphViewer({ graph }: GraphViewerProps) {
         onNodeDragEnd={(node: ForceGraphNode) => {
           node.fx = node.x;
           node.fy = node.y;
-        }}
-        onEngineStop={() => {
-          // Once the simulation stops, update all forces with current settings
-          const d3 = fgRef.current?.d3Force();
-          if (d3) {
-            d3.force('link')
-              .distance(settings.linkDistance)
-              .strength(settings.linkStrength);
-            d3.force('charge')
-              .strength(settings.chargeStrength * -100);
-            d3.force('center')
-              .strength(settings.gravity);
-            d3.velocityDecay(settings.velocityDecay);
-          }
-        }}
-        d3Force={(d3) => {
-          // Initialize forces with default settings
-          d3.force('link')
-            .distance(settings.linkDistance)
-            .strength(settings.linkStrength);
-          d3.force('charge')
-            .strength(settings.chargeStrength * -100);
-          d3.force('center')
-            .strength(settings.gravity);
-          d3.velocityDecay(settings.velocityDecay);
         }}
       />
     </div>
