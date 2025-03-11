@@ -30,11 +30,11 @@ interface GraphSettingsProps {
 }
 
 export const defaultSettings: GraphSettings = {
-  linkDistance: 100,
-  linkStrength: 1,
-  chargeStrength: -30,
-  gravity: 0.1,
-  velocityDecay: 0.4,
+  linkDistance: 150,    // Increased from 100
+  linkStrength: 0.5,    // Decreased from 1 for more flexibility
+  chargeStrength: -1,   // Changed scale to be more intuitive with multiplier
+  gravity: 0.3,         // Increased from 0.1
+  velocityDecay: 0.3,   // Decreased from 0.4 for more dynamic movement
 };
 
 interface SettingSliderProps {
@@ -103,8 +103,8 @@ export function GraphSettings({ settings, onSettingsChange }: GraphSettingsProps
             tooltip="The ideal length of edges between nodes. Higher values spread nodes further apart."
             value={localSettings.linkDistance}
             onChange={(value) => handleChange("linkDistance", value)}
-            min={30}
-            max={300}
+            min={50}
+            max={400}
             step={10}
           />
           <SettingSlider
@@ -121,9 +121,9 @@ export function GraphSettings({ settings, onSettingsChange }: GraphSettingsProps
             tooltip="How strongly nodes repel each other. More negative values push nodes apart more."
             value={localSettings.chargeStrength}
             onChange={(value) => handleChange("chargeStrength", value)}
-            min={-100}
+            min={-2}
             max={0}
-            step={5}
+            step={0.1}
           />
           <SettingSlider
             label="Gravity"

@@ -40,26 +40,27 @@ export function GraphViewer({ graph }: GraphViewerProps) {
     if (fgRef.current) {
       const fg = fgRef.current;
 
-      // Update force simulation parameters
-      fg.d3Force('link')
-        .distance(newSettings.linkDistance)
-        .strength(newSettings.linkStrength);
+      // Get the simulation
+      const simulation = fg.d3Force();
 
-      fg.d3Force('charge')
-        .strength(newSettings.chargeStrength);
+      if (!simulation) return;
 
-      fg.d3Force('center')
-        .strength(newSettings.gravity);
+      // Update forces
+      simulation.force('link')
+        ?.distance(newSettings.linkDistance)
+        ?.strength(newSettings.linkStrength);
 
-      // Fixed collision radius for consistent node spacing
-      fg.d3Force('collision')
-        .radius(20);
+      simulation.force('charge')
+        ?.strength(newSettings.chargeStrength * 100); // Multiply for more noticeable effect
 
-      // Update simulation parameters
-      fg.d3VelocityDecay(newSettings.velocityDecay);
+      simulation.force('center')
+        ?.strength(newSettings.gravity);
 
-      // Reheat the simulation to apply changes
-      fg.d3ReheatSimulation();
+      // Set simulation parameters
+      simulation.velocityDecay(newSettings.velocityDecay);
+
+      // Reheat the simulation
+      simulation.alpha(1).restart();
     }
   }, []);
 
@@ -84,18 +85,11 @@ export function GraphViewer({ graph }: GraphViewerProps) {
         warmupTicks={100}
         cooldownTicks={50}
         enableNodeDrag={true}
-        onNodeDragEnd={(node: ForceGraphNode) => {
-          // Fix node position after drag
-          node.fx = node.x;
-          node.fy = node.y;
-        }}
         onNodeDrag={(node: ForceGraphNode) => {
-          // Update position during drag
           node.fx = node.x;
           node.fy = node.y;
         }}
-        onNodeDragStart={(node: ForceGraphNode) => {
-          // Start dragging from current position
+        onNodeDragEnd={(node: ForceGraphNode) => {
           node.fx = node.x;
           node.fy = node.y;
         }}
