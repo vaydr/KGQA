@@ -32,9 +32,9 @@ export function GraphVisualization({ graph }: GraphVisualizationProps) {
         {
           selector: 'node',
           style: {
-            'background-color': '#666',
+            'background-color': '#6366f1',
             'label': 'data(label)',
-            'color': '#fff',
+            'color': '#000000',
             'text-valign': 'center',
             'text-halign': 'center',
             'font-size': '12px',
@@ -46,34 +46,49 @@ export function GraphVisualization({ graph }: GraphVisualizationProps) {
           selector: 'edge',
           style: {
             'width': 2,
-            'line-color': '#999',
-            'target-arrow-color': '#999',
+            'line-color': '#94a3b8',
+            'target-arrow-color': '#94a3b8',
             'target-arrow-shape': 'triangle',
+            'curve-style': 'bezier',
             'label': 'data(label)',
             'font-size': '10px',
-            'text-rotation': 'autorotate',
-            'curve-style': 'bezier'
+            'text-rotation': 'autorotate'
           } as cytoscape.Css.Edge
         }
       ],
       layout: {
         name: 'cose',
-        idealEdgeLength: () => 100,
-        nodeOverlap: 20,
-        refresh: 20,
-        fit: true,
-        padding: 30,
-        randomize: false,
-        componentSpacing: 100,
-        nodeRepulsion: () => 400000,
-        edgeElasticity: () => 100,
-        nestingFactor: 5,
-        gravity: 80,
-        numIter: 1000,
-        initialTemp: 200,
-        coolingFactor: 0.95,
-        minTemp: 1.0
+        // More natural physics simulation
+        animate: true,
+        refresh: 30,
+        randomize: true,
+        componentSpacing: 150,
+        nodeRepulsion: () => 6000,
+        idealEdgeLength: () => 120,
+        edgeElasticity: () => 200,
+        gravity: 40,
+        // More iterations for better stabilization
+        numIter: 2000,
+        initialTemp: 250,
+        coolingFactor: 0.97,
+        minTemp: 0.5,
+        // Prevent overlapping
+        nodeOverlap: 30,
+        padding: 50,
+        fit: true
       } as cytoscape.LayoutOptions
+    });
+
+    // Enable drag-and-drop for nodes
+    cyRef.current.on('dragfree', 'node', function(evt) {
+      const node = evt.target;
+      node.lock(); // Lock position after drag
+    });
+
+    // Double-click to unlock node
+    cyRef.current.on('dblclick', 'node', function(evt) {
+      const node = evt.target;
+      node.unlock();
     });
 
     return () => {
