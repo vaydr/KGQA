@@ -30,11 +30,11 @@ interface GraphSettingsProps {
 }
 
 export const defaultSettings: GraphSettings = {
-  linkDistance: 150,    // Increased from 100
-  linkStrength: 0.5,    // Decreased from 1 for more flexibility
-  chargeStrength: -1,   // Changed scale to be more intuitive with multiplier
-  gravity: 0.3,         // Increased from 0.1
-  velocityDecay: 0.3,   // Decreased from 0.4 for more dynamic movement
+  linkDistance: 150,    // Increased for better spacing with larger graph
+  linkStrength: 0.3,    // Decreased for more flexibility
+  chargeStrength: -1.5, // Stronger repulsion for better node separation
+  gravity: 0.2,         // Moderate gravity to keep the graph centered
+  velocityDecay: 0.3,   // Allows for more dynamic movement
 };
 
 interface SettingSliderProps {
