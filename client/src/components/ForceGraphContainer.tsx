@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import ForceDirectedGraph, { PhysicsSettings, getDefaultPhysicsSettings, ForceGraphRef } from './ForceDirectedGraph';
 import PhysicsControls from './PhysicsControls';
+import EdgeRelevanceFilter from './EdgeRelevanceFilter';
 import type { Graph, Node, Edge } from '@shared/schema';
 import { Button } from '@/components/ui/button';
 import { 
@@ -80,6 +81,8 @@ const ForceGraphContainer = forwardRef<ForceGraphContainerRef, ForceGraphContain
   useSampleData = false,
 }, ref) => {
   const [settings, setSettings] = useState<PhysicsSettings>(getDefaultPhysicsSettings());
+  // Add state for edge filter range
+  const [edgeFilterRange, setEdgeFilterRange] = useState<[number, number]>([0, 1]);
   
   // Use sample data or provided graph
   const [graph, setGraph] = useState<Graph>(propGraph || generateSampleGraph());
@@ -133,6 +136,11 @@ const ForceGraphContainer = forwardRef<ForceGraphContainerRef, ForceGraphContain
       window.removeEventListener('resize', updateDimensions);
     };
   }, []);
+  
+  // Handle edge filter change
+  const handleEdgeFilterChange = (minValue: number, maxValue: number) => {
+    setEdgeFilterRange([minValue, maxValue]);
+  };
   
   return (
     <div className="relative w-full h-full" ref={containerRef}>
@@ -200,7 +208,15 @@ const ForceGraphContainer = forwardRef<ForceGraphContainerRef, ForceGraphContain
         <PhysicsControls settings={settings} onChange={setSettings} />
       </div>
       
-      {/* Force graph - no key needed since we're updating in-place */}
+      {/* Edge relevance filter in top left */}
+      <div className="absolute top-4 left-4 z-10">
+        <EdgeRelevanceFilter 
+          colorScheme={settings.edgeColorScheme}
+          onChange={handleEdgeFilterChange}
+        />
+      </div>
+      
+      {/* Force graph with edge filter range */}
       <div className="w-full h-full">
         <ForceDirectedGraph 
           ref={forceGraphRef}
@@ -208,6 +224,7 @@ const ForceGraphContainer = forwardRef<ForceGraphContainerRef, ForceGraphContain
           width={width}
           height={height}
           settings={settings}
+          edgeFilterRange={edgeFilterRange}
         />
       </div>
     </div>

@@ -1,0 +1,160 @@
+// 1. Add the edgeFilterRange prop to the component props interface
+interface ForceDirectedGraphProps {
+  graph: Graph;
+  width?: number;
+  height?: number;
+  settings?: PhysicsSettings;
+  onSettingsChange?: (settings: PhysicsSettings) => void;
+  edgeFilterRange?: [number, number]; // Range for filtering edges by relevance score
+}
+
+// 2. Update the GraphLink interface to include relevanceScore
+interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
+  source: GraphNode | string;
+  target: GraphNode | string;
+  type?: string;
+  color?: string;
+  edgeIndex?: number;
+  length?: number;
+  relevanceScore: number; // Score for filtering and coloring
+  isHighlighted?: boolean;
+  highlightLabel?: string;
+}
+
+// 3. Define type-safe refs (inside the component function)
+const gRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined>>();
+const linksRef = useRef<d3.Selection<SVGLineElement, GraphLink, SVGGElement, unknown>>();
+const nodesRef = useRef<d3.Selection<SVGCircleElement, GraphNode, SVGGElement, unknown>>();
+const linkLabelsRef = useRef<d3.Selection<SVGTextElement, GraphLink, SVGGElement, unknown>>();
+
+// 4. Add the helper function to get color from edge color scheme (inside the component function)
+const getColorFromEdgeScheme = (value: number, scheme: string): string => {
+  // Default blue gradient
+  if (scheme === 'default') {
+    return d3.interpolateBlues(value);
+  }
+  
+  // Use the color schemes matching the node color schemes
+  switch (scheme) {
+    case 'viridis': return d3ColorScales.interpolateViridis(value);
+    case 'plasma': return d3ColorScales.interpolatePlasma(value);
+    case 'inferno': return d3ColorScales.interpolateInferno(value);
+    case 'magma': return d3ColorScales.interpolateMagma(value);
+    case 'rainbow': return d3ColorScales.interpolateRainbow(value);
+    case 'turbo': return d3ColorScales.interpolateTurbo(value);
+    case 'cividis': return d3ColorScales.interpolateCividis(value);
+    default: return d3.interpolateBlues(value);
+  }
+};
+
+// 5. Update transformGraphData to add relevance scores to edges
+function transformGraphData(graph: Graph, oldNodes: GraphNode[] = []): [GraphNode[], GraphLink[]] {
+  // ... existing code ...
+  
+  // Create edges
+  const links: GraphLink[] = graph.edges.map((edge, edgeIndex) => {
+    const sourceNode = nodeMap.get(edge.source) as GraphNode;
+    const targetNode = nodeMap.get(edge.target) as GraphNode;
+    
+    // Skip the edge if either the source or target node doesn't exist
+    if (!sourceNode || !targetNode) {
+      console.warn(`Edge ${edge.source} -> ${edge.target} references unknown node(s)`);
+      return null;
+    }
+    
+    return {
+      source: sourceNode,
+      target: targetNode,
+      type: edge.type,
+      edgeIndex,
+      relevanceScore: Math.random(), // Add a random relevance score for now (between 0 and 1)
+      isHighlighted: false
+    };
+  }).filter(Boolean) as GraphLink[];
+  
+  return [nodes, links];
+}
+
+// 6. Add edge color setting in the link creation (inside the main visualization useEffect)
+// Draw links with color based on relevance score and filter range
+const link = g.append('g')
+  .attr('stroke', '#94a3b8')
+  .attr('stroke-width', settings.edgeThickness)
+  .attr('stroke-opacity', 0.6)
+  .selectAll('line')
+  .data(links)
+  .join('line')
+  .attr('stroke', (d: GraphLink) => {
+    if (d.isHighlighted) return '#ff3e00'; // Highlighted path
+    
+    if (!d.relevanceScore) return '#94a3b8'; // Default color
+    
+    // Check if the edge is within the filter range
+    if (edgeFilterRange && 
+        (d.relevanceScore < edgeFilterRange[0] || 
+         d.relevanceScore > edgeFilterRange[1])) {
+      return '#cccccc'; // Gray color for filtered edges
+    }
+    
+    // Use the selected color scheme for edges in range
+    return getColorFromEdgeScheme(d.relevanceScore, settings.edgeColorScheme);
+  })
+  .attr('stroke-opacity', (d: GraphLink) => {
+    if (d.isHighlighted) return 1.0; // Full opacity for highlighted
+    
+    if (!d.relevanceScore) return 0.6; // Default opacity
+    
+    // Reduce opacity for filtered edges
+    if (edgeFilterRange && 
+        (d.relevanceScore < edgeFilterRange[0] || 
+         d.relevanceScore > edgeFilterRange[1])) {
+      return 0.3; // Lower opacity for filtered edges
+    }
+    
+    return 0.8; // Higher opacity for visible edges
+  });
+
+// 7. Add separate useEffect for updating edge colors when filter changes
+// Effect to update edge colors when the filter range changes
+useEffect(() => {
+  if (!linksRef.current || !nodes.length) return;
+  
+  console.log("Updating edge colors based on filter:", edgeFilterRange);
+  
+  // Apply edge coloring based on relevance score and filter range
+  linksRef.current
+    .attr('stroke', (d: GraphLink) => {
+      if (d.isHighlighted) return '#ff3e00'; // Highlighted path
+      
+      if (!d.relevanceScore) return '#94a3b8'; // Default color for edges without scores
+      
+      // Check if the edge is within the filter range
+      if (edgeFilterRange && 
+          (d.relevanceScore < edgeFilterRange[0] || 
+           d.relevanceScore > edgeFilterRange[1])) {
+        return '#cccccc'; // Gray color for filtered edges
+      }
+      
+      // Use the selected color scheme for edges in range
+      return getColorFromEdgeScheme(d.relevanceScore, settings.edgeColorScheme);
+    })
+    .attr('stroke-opacity', (d: GraphLink) => {
+      if (d.isHighlighted) return 1.0; // Full opacity for highlighted
+      
+      if (!d.relevanceScore) return 0.6; // Default opacity
+      
+      // Reduce opacity for filtered edges
+      if (edgeFilterRange && 
+          (d.relevanceScore < edgeFilterRange[0] || 
+           d.relevanceScore > edgeFilterRange[1])) {
+        return 0.3; // Lower opacity for filtered edges
+      }
+      
+      return 0.8; // Higher opacity for visible edges
+    });
+  
+  // Gently reheat simulation if needed
+  if (simulationRef.current) {
+    simulationRef.current.alpha(0.1).restart();
+  }
+}, [edgeFilterRange, settings.edgeColorScheme, nodes.length]); 

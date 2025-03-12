@@ -223,48 +223,51 @@ const PhysicsControls: React.FC<PhysicsControlsProps> = ({ settings, onChange })
           
           <div className="border-t pt-4 mt-2">
             <DialogHeader>
-              <DialogTitle>Visual</DialogTitle>
+              <DialogTitle>Appearance</DialogTitle>
             </DialogHeader>
             
             <div className="grid gap-4 mt-4">
               <SettingSlider
                 label="Edge Thickness"
-                tooltip="Thickness of the edges between nodes."
+                tooltip="The thickness of the edges connecting nodes."
                 value={localSettings.edgeThickness}
                 onChange={(value) => handleChange("edgeThickness", value)}
                 min={0.1}
-                max={10}
+                max={5}
                 step={0.1}
                 minText="thin"
                 maxText="thick"
                 numDecimals={1}
               />
-              
               <SettingSlider
-                label="Node Radius"
-                tooltip="Size of the nodes in the graph."
+                label="Node Size"
+                tooltip="The radius of the nodes in the graph."
                 value={localSettings.nodeRadius}
                 onChange={(value) => handleChange("nodeRadius", value)}
-                min={1}
-                max={15}
+                min={2}
+                max={20}
                 step={0.5}
                 minText="small"
                 maxText="large"
+                numDecimals={1}
               />
-              
-              {/* New color scheme dropdown */}
               <SettingSelect
-                label="Color Scheme"
-                tooltip="Color palette for node coloring."
+                label="Node Color Scheme"
+                tooltip="The color scheme used for coloring nodes, especially when using community detection."
                 value={localSettings.colorScheme}
                 onChange={(value) => handleSelectChange("colorScheme", value)}
                 options={colorSchemeOptions}
               />
-              
-              {/* Community detection dropdown */}
+              <SettingSelect
+                label="Edge Color Scheme" 
+                tooltip="The color scheme used for coloring edges based on their relevance scores."
+                value={localSettings.edgeColorScheme}
+                onChange={(value) => handleSelectChange("edgeColorScheme", value)}
+                options={colorSchemeOptions}  
+              />
               <SettingSelect
                 label="Community Detection"
-                tooltip="Algorithm to detect and color node communities."
+                tooltip="Algorithm used to detect and color communities within the graph."
                 value={localSettings.communityDetection}
                 onChange={(value) => handleSelectChange("communityDetection", value)}
                 options={communityOptions}
