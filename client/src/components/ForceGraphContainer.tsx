@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import ForceDirectedGraph, { PhysicsSettings, getDefaultPhysicsSettings } from './ForceDirectedGraph';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import ForceDirectedGraph, { PhysicsSettings, getDefaultPhysicsSettings, ForceGraphRef } from './ForceDirectedGraph';
 import PhysicsControls from './PhysicsControls';
 import type { Graph, Node, Edge } from '@shared/schema';
 import { Button } from '@/components/ui/button';
@@ -58,6 +58,15 @@ function generateSampleGraph(nodeCount = 150, edgeProbability = 0.05): Graph {
   } as Graph;
 }
 
+// Define the ref types for external access
+export interface ForceGraphContainerRef {
+  highlightPathFromEdges: (
+    extractedEdges: string[],
+    clauses?: Array<{entity1: string, relation: string, entity2: string}>,
+    entityExamples?: Record<string, string>
+  ) => void;
+}
+
 interface ForceGraphContainerProps {
   graph?: Graph;
   useSampleData?: boolean;
@@ -66,14 +75,30 @@ interface ForceGraphContainerProps {
 /**
  * Container component that wraps the force directed graph and its controls
  */
-const ForceGraphContainer: React.FC<ForceGraphContainerProps> = ({ 
+const ForceGraphContainer = forwardRef<ForceGraphContainerRef, ForceGraphContainerProps>(({ 
   graph: propGraph, 
   useSampleData = false,
-}) => {
+}, ref) => {
   const [settings, setSettings] = useState<PhysicsSettings>(getDefaultPhysicsSettings());
   
   // Use sample data or provided graph
   const [graph, setGraph] = useState<Graph>(propGraph || generateSampleGraph());
+  
+  // Ref to the force graph component to access its methods
+  const forceGraphRef = useRef<ForceGraphRef>(null);
+  
+  // Expose methods to parent components
+  useImperativeHandle(ref, () => ({
+    highlightPathFromEdges: (
+      extractedEdges: string[],
+      clauses?: Array<{entity1: string, relation: string, entity2: string}>,
+      entityExamples?: Record<string, string>
+    ) => {
+      if (forceGraphRef.current) {
+        forceGraphRef.current.highlightPath(extractedEdges, clauses, entityExamples);
+      }
+    }
+  }));
   
   // Generate sample data if requested
   useEffect(() => {
@@ -178,6 +203,7 @@ const ForceGraphContainer: React.FC<ForceGraphContainerProps> = ({
       {/* Force graph - no key needed since we're updating in-place */}
       <div className="w-full h-full">
         <ForceDirectedGraph 
+          ref={forceGraphRef}
           graph={graph} 
           width={width}
           height={height}
@@ -186,6 +212,6 @@ const ForceGraphContainer: React.FC<ForceGraphContainerProps> = ({
       </div>
     </div>
   );
-};
+});
 
 export default ForceGraphContainer; 

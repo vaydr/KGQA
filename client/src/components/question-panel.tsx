@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useContext, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { SendHorizontal, Loader2, CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { OpenAI } from "openai";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { ForceGraphContainerRef } from "./ForceGraphContainer";
+import React from "react";
 
 // Initialize the DeepSeek client with the provided API key
 const client = new OpenAI({
@@ -20,20 +22,25 @@ const client = new OpenAI({
 async function queryToClauses(edgeTypes: string[], query: string): Promise<string> {
   const edgeTypesStr = edgeTypes.join(", ");
   const prompt = `
-    You are a reasoning assistant designed to break down complex natural language queries into structured clauses corresponding to typed edges in a knowledge graph.
+    You are a reasoning assistant designed to break down complex natural language queries into structured clauses corresponding to typed edges and entities in a knowledge graph.
 
     Given:
     - A set of available edge types: is, has, is_not, owns, contains, part_of, located_in, created_by, belongs_to, member_of, causes, affects, related_to, depends_on, supports, opposes, precedes, follows, similar_to, different_from, larger_than, smaller_than, equal_to, subset_of, superset_of, instance_of, type_of, used_for, capable_of, made_of, consists_of, requires, produces, consumes, converts, transmits, connects, separates, controls, regulates, measures, represents, symbolizes, indicates, brother_of, son_of, daughter_of, parent_of, sibling_of, spouse_of, friend_of, colleague_of, ${edgeTypesStr}
-    - A user's natural language query.
+    - A user's natural language query: "${query}"
 
     Your task:
-    - Break down the query into a sequence of clauses, where each clause represents exactly one edge from the provided edge types.
-    - Each clause should be in the form (entity1, edge_type, entity2), chaining logically to represent the meaning of the query.
+    1. Break down the query into a sequence of clauses, where each clause represents exactly one edge from the provided edge types.
+    2. Each clause should be in the form (entity1, edge_type, entity2), chaining logically to represent the meaning of the query.
+    3. For each entity in your clauses, provide a plausible and specific real-world example of such an entity.
 
-    Respond ONLY with a comma-separated sequence of clauses.
+    Respond with:
+    1. A comma-separated sequence of clauses in the form (entity1, edge_type, entity2)
+    2. Then on a new line after the clauses, provide a mapping of generic entity names to specific examples.
+    Format: "ENTITIES: entity1 = [specific example], entity2 = [specific example], ..."
 
-    Query:
-    ${query}
+    For example, if the query is "Who is the brother of the king of Spain?", you might respond:
+    (person, brother_of, king), (king, rules, Spain)
+    ENTITIES: person = Felipe VI's brother, king = Felipe VI, Spain = Kingdom of Spain
   `;
 
   try {
@@ -83,6 +90,48 @@ function extractEdges(input: string): string[] {
   return edges;
 }
 
+// New function to extract entity examples from the LLM response
+function extractEntityExamples(input: string): Record<string, string> {
+  const entityMap: Record<string, string> = {};
+  
+  // Look for the ENTITIES: section without using the 's' flag
+  const entitiesMatch = input.match(/ENTITIES\s*:\s*(.*?)(\n|$)/);
+  if (entitiesMatch && entitiesMatch[1]) {
+    const mappings = entitiesMatch[1].split(',');
+    
+    for (const mapping of mappings) {
+      const parts = mapping.split('=');
+      if (parts.length >= 2) {
+        const entityName = parts[0].trim();
+        const entityExample = parts[1].trim();
+        entityMap[entityName] = entityExample;
+      }
+    }
+  }
+  
+  return entityMap;
+}
+
+// Function to extract clauses with entities from the LLM response
+function extractClauses(input: string): Array<{entity1: string, relation: string, entity2: string}> {
+  const clauses: Array<{entity1: string, relation: string, entity2: string}> = [];
+  
+  // First attempt: look for patterns like (entity1, edge_type, entity2)
+  const pattern = /\(\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*([^,]+?)\s*\)/g;
+  
+  // Use exec in a loop instead of matchAll for better compatibility
+  let match;
+  while ((match = pattern.exec(input)) !== null) {
+    clauses.push({
+      entity1: match[1].trim(),
+      relation: match[2].trim(),
+      entity2: match[3].trim()
+    });
+  }
+  
+  return clauses;
+}
+
 // Get unique edge types from a graph
 function getEdgeTypes(graph: any): string[] {
   if (!graph || !graph.edges) return [];
@@ -92,6 +141,9 @@ function getEdgeTypes(graph: any): string[] {
   });
   return Array.from(types);
 }
+
+// Create a context to access the ForceGraphContainer ref
+export const ForceGraphContainerContext = React.createContext<ForceGraphContainerRef | null>(null);
 
 interface QuestionPanelProps {
   graphId: number | "sample";
@@ -114,6 +166,9 @@ export function QuestionPanel({ graphId }: QuestionPanelProps) {
     queryKey: [`/api/graphs/${graphId}`],
     enabled: graphId !== undefined,
   });
+
+  // Get the ForceGraphContainer ref from context
+  const forceGraphContainer = useContext(ForceGraphContainerContext);
 
   // Process question with LLM to extract clauses and edge types
   const processQuestion = async () => {
@@ -138,7 +193,20 @@ export function QuestionPanel({ graphId }: QuestionPanelProps) {
       
       // Update state with results
       setClauses(result);
-      setExtractedEdges(extractEdges(result));
+      const edges = extractEdges(result);
+      setExtractedEdges(edges);
+      
+      // Extract clauses and entity examples from the result
+      const clauses = extractClauses(result);
+      const entityExamples = extractEntityExamples(result);
+      
+      console.log("Extracted clauses:", clauses);
+      console.log("Entity examples:", entityExamples);
+      
+      // Highlight the path in the graph using the extracted edges and entity examples
+      if (forceGraphContainer && edges.length > 0) {
+        forceGraphContainer.highlightPathFromEdges(edges, clauses, entityExamples);
+      }
       
       // LLM processing succeeded
       success = true;

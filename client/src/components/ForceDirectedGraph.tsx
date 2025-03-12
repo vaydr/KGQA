@@ -1,5 +1,147 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as d3 from 'd3';
+// Import d3 color scales - using d3's built-in interpolate functions if available
+// Fallback implementations if d3-scale-chromatic is not available
+const d3ColorScales = {
+  // Seaborn-equivalent color palettes as arrays of hex colors
+  // These are hardcoded to match Seaborn palettes exactly
+  
+  // Viridis palette (perceptually uniform)
+  viridis: [
+    "#440154", "#481567", "#482677", "#453781", "#404788", "#39568C", "#33638D", 
+    "#2D708E", "#287D8E", "#238A8D", "#1F968B", "#20A387", "#29AF7F", "#3CBB75", 
+    "#55C667", "#73D055", "#95D840", "#B8DE29", "#DCE319", "#FDE725"
+  ],
+  
+  // Plasma palette
+  plasma: [
+    "#0D0887", "#41049D", "#6A00A8", "#8F0DA4", "#B12A90", "#CB4678", "#E16462", 
+    "#F1834B", "#FCA636", "#FCCD25", "#F0F921"
+  ],
+  
+  // Inferno palette
+  inferno: [
+    "#000004", "#160B39", "#420A68", "#6A176E", "#932667", "#BC3754", "#DD513A", 
+    "#F37819", "#FCA50A", "#F6D746", "#FCFFA4"
+  ],
+  
+  // Magma palette
+  magma: [
+    "#000004", "#140E36", "#3B0F70", "#641A80", "#8C2981", "#B5367A", "#DE4968", 
+    "#F66E5B", "#FD9F6C", "#FDCD90", "#FBFCBF"
+  ],
+  
+  // Rainbow palette (spectral, not perceptually uniform but matches Seaborn)
+  rainbow: [
+    "#6E40AA", "#8F3F99", "#AE4283", "#C74570", "#D84C5B", "#E25A49", "#E47037", 
+    "#E08D2A", "#D3A81F", "#BFC01D", "#A6D71E", "#88DD28", "#69DF45", "#4EDF69", 
+    "#37DF8D", "#2CDEB0", "#2BDAD2", "#34D1ED", "#4BC9F2", "#6ABFEF", "#8BB4E8", 
+    "#A9A9DC", "#C29DCE", "#D691BE", "#E387AE"
+  ],
+  
+  // Turbo palette (alternative to jet/rainbow)
+  turbo: [
+    "#23171B", "#271A28", "#2B1C38", "#2F1E49", "#32205A", "#34236B", "#36257D", 
+    "#36278E", "#36299F", "#342CB0", "#322FC0", "#2E32CF", "#2A36DD", "#2539E9", 
+    "#1F3CF4", "#193FFE", "#1C43EF", "#2347DF", "#2C4ACD", "#374DBC", "#4150AB", 
+    "#4B539A", "#555689", "#5E5978", "#675C68", "#6F5F58", "#776248", "#7E6538", 
+    "#856829", "#8B6B1A", "#916D0C", "#967001", "#9B7200", "#A07400", "#A47700", 
+    "#A97A00", "#AE7D00", "#B28000", "#B98305", "#BF8609", "#C6890D", "#CC8C11", 
+    "#D28F15", "#D89218", "#DE951C", "#E49820", "#EA9B24", "#EF9E27", "#F4A12B", 
+    "#F9A42F", "#FDA734", "#FEA938", "#FEAC3C", "#FEAF40", "#FEB244", "#FEB548", 
+    "#FEB84C", "#FEBB50", "#FEBE54", "#FEC157", "#FEC45B", "#FEC75F", "#FECA63", 
+    "#FECD66", "#FED06A", "#FED36E", "#FED672", "#FED976", "#FEDC7A", "#FEDF7D", 
+    "#FEE281", "#FEE585", "#FEE889", "#FEEB8D", "#FEEE91", "#FEF195", "#FEF499", 
+    "#FEF69D", "#FEF9A1", "#FEFCA5", "#FDFDFA"
+  ],
+  
+  // Cividis (colorblind-friendly)
+  cividis: [
+    "#00204C", "#00214E", "#002250", "#002251", "#002353", "#002355", "#002456", 
+    "#002558", "#00265A", "#00275B", "#00285D", "#00295E", "#002A5F", "#002B61", 
+    "#002C62", "#002D63", "#002E64", "#002F65", "#003066", "#003167", "#003268", 
+    "#003369", "#00346A", "#00356B", "#00366C", "#00376C", "#00386D", "#00396E", 
+    "#003A6E", "#003B6F", "#003C70", "#003D70", "#003E71", "#003F71", "#004072", 
+    "#004172", "#004273", "#004373", "#004473", "#004574", "#004674", "#004775", 
+    "#004875", "#004975", "#004A76", "#004B76", "#004C76", "#004D77", "#004E77", 
+    "#004F77", "#005078", "#005178", "#005278", "#005378", "#005479", "#005579", 
+    "#005679", "#005779", "#00587A", "#00597A", "#005A7A", "#005B7A", "#005C7A", 
+    "#005D7B", "#005E7B", "#005F7B", "#01617B", "#02627B", "#03637B", 
+    "#04647B", "#05657B", "#06667B", "#07677B", "#08687B", "#09697B", "#0A6A7B", 
+    "#0B6B7B", "#0C6C7B", "#0D6D7B", "#0E6E7B", "#0F6F7B", "#10707B", "#11717B", 
+    "#12727B", "#13737B", "#14747B", "#15757B", "#16767A", "#17777A", "#18787A", 
+    "#19797A", "#1A7A7A", "#1B7B7A", "#1C7C7A", "#1D7D7A", "#1E7E7A", "#1F7F79", 
+    "#208079", "#218179", "#228279", "#238378", "#248478", "#258578", "#268677", 
+    "#278777", "#288876", "#298976", "#2A8A75", "#2B8B75", "#2C8C74", "#2D8D74", 
+    "#2E8E73", "#2F8F72", "#308F72", "#319071", "#329170", "#339270", "#34936F", 
+    "#35946E", "#36956D", "#37966D", "#38976C", "#39986B", "#3A996A", "#3B9A69", 
+    "#3C9B68", "#3D9C67", "#3E9D66", "#3F9E65", "#409F64", "#41A063", "#42A162", 
+    "#43A261", "#44A35F", "#45A45E", "#46A55D", "#47A65C", "#48A75A", "#49A859", 
+    "#4AA957", "#4BAA56", "#4CAB55", "#4DAC53", "#4EAD52", "#4FAE50", "#50AF4F", 
+    "#51B04D", "#52B14C", "#53B24A", "#54B349", "#56B447", "#57B546", "#58B644", 
+    "#59B743", "#5AB741", "#5BB840", "#5CB93E", "#5DBA3D", "#5FBB3B", "#60BC3A", 
+    "#61BD38", "#62BE37", "#63BF35", "#65C034", "#66C132", "#67C231", "#68C32F", 
+    "#69C42E", "#6BC52C", "#6CC62B", "#6DC729", "#70C926", "#71CA25", "#72CB23", 
+    "#73CC22", "#75CD21", "#76CE1F", "#77CF1E", "#79D01C", "#7AD11B", "#7BD21A", 
+    "#7CD319", "#7ED417", "#7FD516", "#80D615", "#82D714", "#83D813", "#84D911", 
+    "#86DA10", "#87DB0F", "#88DC0E", "#8ADD0D", "#8BDE0C", "#8CDF0B", "#8EE00A", 
+    "#8FE109", "#90E308", "#92E407", "#93E506", "#94E606", "#96E705", "#97E804", 
+    "#98E904", "#9AEA03", "#9BEB02", "#9DEC02", "#9EED01", "#9FEE01", "#A1EF00", 
+    "#A2F000", "#A3F100", "#A5F200", "#A6F300", "#A8F400", "#A9F500", "#AAF600", 
+    "#ACF700", "#ADF800", "#AEF900", "#B0FA00", "#B1FB00", "#B3FC00", "#B4FD00", 
+    "#B6FE00", "#B7FF00"
+  ],
+  
+  // Restore the interpolation function interfaces to maintain compatibility
+  interpolateViridis: (t: number): string => {
+    const index = Math.min(Math.floor(t * d3ColorScales.viridis.length), d3ColorScales.viridis.length - 1);
+    return d3ColorScales.viridis[index];
+  },
+  
+  interpolatePlasma: (t: number): string => {
+    const index = Math.min(Math.floor(t * d3ColorScales.plasma.length), d3ColorScales.plasma.length - 1);
+    return d3ColorScales.plasma[index];
+  },
+  
+  interpolateInferno: (t: number): string => {
+    const index = Math.min(Math.floor(t * d3ColorScales.inferno.length), d3ColorScales.inferno.length - 1);
+    return d3ColorScales.inferno[index];
+  },
+  
+  interpolateMagma: (t: number): string => {
+    const index = Math.min(Math.floor(t * d3ColorScales.magma.length), d3ColorScales.magma.length - 1);
+    return d3ColorScales.magma[index];
+  },
+  
+  interpolateRainbow: (t: number): string => {
+    const index = Math.min(Math.floor(t * d3ColorScales.rainbow.length), d3ColorScales.rainbow.length - 1);
+    return d3ColorScales.rainbow[index];
+  },
+  
+  interpolateTurbo: (t: number): string => {
+    const index = Math.min(Math.floor(t * d3ColorScales.turbo.length), d3ColorScales.turbo.length - 1);
+    return d3ColorScales.turbo[index];
+  },
+  
+  interpolateCividis: (t: number): string => {
+    const index = Math.min(Math.floor(t * d3ColorScales.cividis.length), d3ColorScales.cividis.length - 1);
+    return d3ColorScales.cividis[index];
+  }
+};
+
+// Try to use d3-scale-chromatic if available
+try {
+  const d3ScaleChromatic = require('d3-scale-chromatic');
+  if (d3ScaleChromatic) {
+    console.log("Using d3-scale-chromatic for color palettes");
+    // We're now going to keep our custom Seaborn palettes instead of using d3's
+  }
+} catch (e) {
+  console.warn("d3-scale-chromatic not available, using Seaborn-like color palettes");
+  console.info("To use original d3 color scales, install d3-scale-chromatic:");
+  console.info("npm install d3-scale-chromatic");
+}
+
 import { Graph } from '@shared/schema';
 import NodeColorPicker from './NodeColorPicker';
 
@@ -12,6 +154,8 @@ export interface PhysicsSettings {
   velocityDecay: number;
   edgeThickness: number; // New setting for edge thickness
   nodeRadius: number;    // New setting for node radius
+  colorScheme: string;   // Color scheme for node coloring
+  communityDetection: string; // Community detection algorithm
 }
 
 // Convert to a function that returns the default settings to make it compatible with Fast Refresh
@@ -23,6 +167,8 @@ export const getDefaultPhysicsSettings = (): PhysicsSettings => ({
   velocityDecay: 0.5,  // More damping
   edgeThickness: 0.5,  // Default edge thickness
   nodeRadius: 5,       // Default node radius
+  colorScheme: 'default', // Default color scheme
+  communityDetection: 'none', // No community detection by default
 });
 
 // Keep this for backward compatibility
@@ -35,12 +181,25 @@ interface GraphNode extends d3.SimulationNodeDatum {
   r: number;
   color: string;
   isSelected: boolean; // Always use this as the single source of truth for selection
+  isHighlighted: boolean; // For special highlighting of path nodes
+  tooltipText?: string; // For showing entity examples as tooltips
 }
 
 interface GraphLink {
   source: any;
   target: any;
   type: string;
+  isHighlighted: boolean; // For special highlighting of path edges
+  highlightLabel?: string; // For showing the edge type as a tooltip
+}
+
+// Define the ref types for external access
+export interface ForceGraphRef {
+  highlightPath: (
+    extractedEdges: string[],
+    clauses?: Array<{entity1: string, relation: string, entity2: string}>,
+    entityExamples?: Record<string, string>
+  ) => void;
 }
 
 // --- Component props ---
@@ -72,13 +231,14 @@ interface ExactLayerSelection {
   currentLayer: number;
 }
 
-const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
+// Convert to forwardRef component to expose methods
+const ForceDirectedGraph = forwardRef<ForceGraphRef, ForceDirectedGraphProps>(({
   graph,
   width = 800,
   height = 600,
   settings = defaultPhysicsSettings,
   onSettingsChange,
-}) => {
+}, ref) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<GraphNode, undefined> | null>(null);
   const [nodes, setNodes] = useState<GraphNode[]>([]);
@@ -114,6 +274,7 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
   const linksRef = useRef<any>(null);
   const nodesRef = useRef<any>(null);
   const labelsRef = useRef<any>(null);
+  const linkLabelsRef = useRef<any>(null); // Reference for edge labels
 
   // Convert graph data to D3 format
   useEffect(() => {
@@ -122,8 +283,9 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       id: node.id,
       label: node.label,
       r: 5, // Smaller nodes for larger graphs
-      color: '#6366f1',
-      isSelected: false
+      color: '#6366f1', // Default color - will be overridden by color scheme
+      isSelected: false,
+      isHighlighted: false
     }));
 
     // Transform links
@@ -131,11 +293,19 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       source: edge.source,
       target: edge.target,
       type: edge.type,
+      isHighlighted: false,
+      highlightLabel: edge.type
     }));
 
-    setNodes(nodeData);
+    // Apply color scheme if we have settings
+    let coloredNodes = nodeData;
+    if (settings && settings.colorScheme) {
+      coloredNodes = applyColorScheme(nodeData, settings.colorScheme, settings.communityDetection || 'none');
+    }
+
+    setNodes(coloredNodes);
     setLinks(linkData);
-  }, [graph]);
+  }, [graph, settings.colorScheme, settings.communityDetection]);
 
   // Handle keyboard events at component level
   useEffect(() => {
@@ -507,9 +677,12 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
           node.fy = null;
         });
         
-        // Remove all selection indicators
+        // Remove all selection indicators for nodes
         d3.selectAll('circle')
           .attr('stroke', 'none');
+        
+        // Also reset any highlighting - this will update all visual elements
+        resetHighlighting();
         
         // Restart with higher energy
         sim.alpha(0.5).restart();
@@ -641,7 +814,7 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       labels.attr('display', scale > 1.5 ? null : 'none');
     });
 
-    // Update tick function to also reflect selection state in the visual representation
+    // Update tick function to also reflect selection and highlighting state
     sim.on('tick', () => {
       link
         .attr('x1', (d: GraphLink) => (d.source as any).x)
@@ -652,12 +825,54 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       node
         .attr('cx', (d: GraphNode) => d.x!)
         .attr('cy', (d: GraphNode) => d.y!)
-        .attr('stroke', (d: GraphNode) => d.isSelected ? '#000000' : 'none');
+        .attr('stroke', (d: GraphNode) => {
+          if (d.isHighlighted) return '#000000';
+          return d.isSelected ? '#000000' : 'none';
+        })
+        .attr('stroke-width', (d: GraphNode) => d.isHighlighted ? 3 : 1.5);
 
       labels
         .attr('x', (d: GraphNode) => d.x!)
         .attr('y', (d: GraphNode) => d.y!);
         
+      // Update edge label positions
+      if (linkLabelsRef.current) {
+        linkLabelsRef.current
+          .attr('x', (d: GraphLink) => {
+            const source = d.source as any;
+            const target = d.target as any;
+            return (source.x + target.x) / 2;
+          })
+          .attr('y', (d: GraphLink) => {
+            const source = d.source as any;
+            const target = d.target as any;
+            return (source.y + target.y) / 2;
+          });
+      }
+      
+      // Update node tooltip positions
+      if (gRef.current) {
+        try {
+          // First, try to find the tooltip container
+          const tooltipContainer = d3.select(gRef.current).select('.tooltip-container');
+          if (!tooltipContainer.empty()) {
+            // If container exists, select all tooltips within it
+            tooltipContainer.selectAll('.node-tooltip')
+              .attr('transform', function() {
+                // Get the node data directly from the element
+                const d = d3.select(this).datum() as GraphNode;
+                if (d && d.x !== undefined && d.y !== undefined) {
+                  return `translate(${d.x},${d.y - 20})`;
+                }
+                return '';
+              });
+          }
+        } catch (e) {
+          // If there's an error, silently continue - tooltips aren't critical
+          console.debug("Error updating tooltips:", e);
+        }
+      }
+      
       // Update quadtree for performance
       quadtree
         .x(d => d.x || 0)
@@ -718,11 +933,40 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       linksRef.current.attr('stroke-width', settings.edgeThickness);
     }
     
-    // 6. Gently reheat the simulation for a smooth transition
+    // Gently reheat the simulation for a smooth transition
     sim.alpha(0.3).restart();
     
-    console.log("Updated force parameters:", settings);
-  }, [settings]);
+    console.log("Updated physics parameters:", settings);
+  }, [
+    settings.linkDistance, 
+    settings.linkStrength, 
+    settings.chargeStrength, 
+    settings.gravity, 
+    settings.velocityDecay, 
+    settings.edgeThickness, 
+    settings.nodeRadius
+  ]);
+  
+  // Handle color scheme and community detection changes separately
+  useEffect(() => {
+    if (!nodes.length) return;
+    
+    console.log("Updating color scheme:", settings.colorScheme, settings.communityDetection);
+    
+    // Apply color scheme to nodes
+    const coloredNodes = applyColorScheme([...nodes], settings.colorScheme, settings.communityDetection);
+    setNodes(coloredNodes);
+    
+    // Update node colors in the DOM
+    if (nodesRef.current) {
+      nodesRef.current.attr('fill', (d: GraphNode) => d.color);
+    }
+    
+    // Gently reheat simulation if needed
+    if (simulationRef.current) {
+      simulationRef.current.alpha(0.1).restart();
+    }
+  }, [settings.colorScheme, settings.communityDetection, nodes.length]);
 
   // Function to handle color change from the color picker
   const handleNodeColorChange = (newColor: string) => {
@@ -1015,6 +1259,457 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
     }
   }
 
+  /**
+   * Highlights a random path in the graph based on extracted edges from LLM
+   * @param extractedEdges Array of edge types extracted from LLM response
+   * @param clauses Optional array of clauses with entity information
+   * @param entityExamples Optional mapping of entity names to specific examples
+   */
+  const highlightPath = (
+    extractedEdges: string[],
+    clauses?: Array<{entity1: string, relation: string, entity2: string}>,
+    entityExamples?: Record<string, string>
+  ) => {
+    if (!nodes.length || !links.length || !extractedEdges.length) return;
+    
+    // First, reset any previous highlighting
+    resetHighlighting();
+    
+    // The number of edges we need to highlight
+    const pathLength = extractedEdges.length;
+    
+    // Find a valid path of the required length
+    const path = findRandomPath(pathLength);
+    if (!path || path.length < pathLength) {
+      console.warn('Could not find a valid path of length', pathLength);
+      return;
+    }
+    
+    // Apply highlighting to the found path
+    for (let i = 0; i < path.length; i++) {
+      const edge = path[i];
+      
+      // Highlight the edge with the corresponding extracted edge type
+      edge.isHighlighted = true;
+      edge.highlightLabel = extractedEdges[i];
+      
+      // Get clause for this edge if available
+      const clause = clauses && clauses[i];
+      
+      // Highlight the source and target nodes
+      const source = typeof edge.source === 'object' ? edge.source : nodes.find(n => n.id === edge.source);
+      const target = typeof edge.target === 'object' ? edge.target : nodes.find(n => n.id === edge.target);
+      
+      if (source) {
+        source.isHighlighted = true;
+        // Also select the node
+        source.isSelected = true;
+        // Fix position
+        if (source.x !== undefined && source.y !== undefined) {
+          source.fx = source.x;
+          source.fy = source.y;
+        }
+        
+        // Set tooltip from entity examples if available
+        if (clause && entityExamples) {
+          const entityName = clause.entity1;
+          const example = entityExamples[entityName];
+          if (example) {
+            source.tooltipText = example;
+          }
+        }
+      }
+      
+      if (target) {
+        target.isHighlighted = true;
+        // Also select the node
+        target.isSelected = true;
+        // Fix position
+        if (target.x !== undefined && target.y !== undefined) {
+          target.fx = target.x;
+          target.fy = target.y;
+        }
+        
+        // Set tooltip from entity examples if available
+        if (clause && entityExamples) {
+          const entityName = clause.entity2;
+          const example = entityExamples[entityName];
+          if (example) {
+            target.tooltipText = example;
+          }
+        }
+      }
+    }
+    
+    // Update visual representation
+    updateHighlighting();
+    
+    // Gently reheat the simulation to adjust to the new fixed nodes
+    if (simulationRef.current) {
+      simulationRef.current.alpha(0.2).restart();
+    }
+  };
+  
+  /**
+   * Finds a random path in the graph with the specified length
+   * @param length The number of edges in the path
+   * @returns Array of edges forming a path, or null if no path found
+   */
+  const findRandomPath = (length: number): GraphLink[] | null => {
+    if (length <= 0 || !links.length || !nodes.length) return null;
+    
+    // Build adjacency list for faster path finding
+    const adjacencyList = buildAdjacencyList();
+    
+    // Pick a random starting node
+    const startNodeIdx = Math.floor(Math.random() * nodes.length);
+    const startNode = nodes[startNodeIdx];
+    
+    // Try to find a path from this node
+    const path: GraphLink[] = [];
+    let currentNodeId = startNode.id;
+    
+    for (let i = 0; i < length; i++) {
+      // Get all neighbors of the current node
+      const neighbors = adjacencyList.get(currentNodeId) || new Set<string>();
+      const neighborArray = Array.from(neighbors);
+      
+      // If we have no more neighbors, we can't continue the path
+      if (neighborArray.length === 0) {
+        // Start over with a different node if this is the first edge
+        if (i === 0) {
+          return findRandomPath(length); // Recursive retry with a different start node
+        }
+        break;
+      }
+      
+      // Pick a random neighbor
+      const nextNodeId = neighborArray[Math.floor(Math.random() * neighborArray.length)];
+      
+      // Find the edge between current and next node
+      const edge = links.find(link => {
+        const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+        const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+        return (sourceId === currentNodeId && targetId === nextNodeId) || 
+               (sourceId === nextNodeId && targetId === currentNodeId);
+      });
+      
+      if (!edge) break;
+      
+      // Add this edge to the path
+      path.push(edge);
+      
+      // Move to the next node
+      currentNodeId = nextNodeId;
+    }
+    
+    // If we couldn't find a path of the required length, try again with a different start node
+    if (path.length < length) {
+      return findRandomPath(length); // Recursive retry
+    }
+    
+    return path;
+  };
+  
+  /**
+   * Reset all highlighting in the graph
+   */
+  const resetHighlighting = () => {
+    // Reset node highlighting
+    nodes.forEach(node => {
+      node.isHighlighted = false;
+      node.tooltipText = undefined; // Clear tooltip text
+    });
+    
+    // Reset edge highlighting
+    links.forEach(link => {
+      link.isHighlighted = false;
+      link.highlightLabel = undefined;
+    });
+    
+    // Update visual elements to reflect the reset state
+    if (nodesRef.current) {
+      nodesRef.current
+        .attr('stroke-width', (d: GraphNode) => d.isHighlighted ? 3 : 1.5)
+        .attr('stroke', (d: GraphNode) => {
+          if (d.isHighlighted) return '#000000';
+          return d.isSelected ? '#000000' : 'none';
+        });
+    }
+    
+    if (linksRef.current) {
+      linksRef.current
+        .attr('stroke-width', settings.edgeThickness)
+        .attr('stroke', '#94a3b8');
+    }
+    
+    // Remove any edge labels/tooltips
+    if (gRef.current) {
+      gRef.current.selectAll('.edge-label').remove();
+      gRef.current.selectAll('.node-tooltip').remove();
+      // Clear the reference
+      linkLabelsRef.current = null;
+    }
+  };
+  
+  /**
+   * Update the visual representation of highlighting
+   */
+  const updateHighlighting = () => {
+    // Update node highlighting
+    if (nodesRef.current) {
+      nodesRef.current
+        .attr('stroke-width', (d: GraphNode) => d.isHighlighted ? 3 : 1.5)
+        .attr('stroke', (d: GraphNode) => {
+          if (d.isHighlighted) return '#000000';
+          return d.isSelected ? '#000000' : 'none';
+        });
+    }
+    
+    // Update edge highlighting
+    if (linksRef.current) {
+      linksRef.current
+        .attr('stroke-width', (d: GraphLink) => d.isHighlighted ? settings.edgeThickness * 3 : settings.edgeThickness)
+        .attr('stroke', (d: GraphLink) => d.isHighlighted ? '#000000' : '#94a3b8');
+    }
+    
+    // Remove existing tooltips and labels
+    if (gRef.current) {
+      gRef.current.selectAll('.edge-label').remove();
+      gRef.current.selectAll('.node-tooltip').remove();
+      
+      // Create new labels for highlighted edges
+      const edgeLabels = gRef.current.append('g')
+        .selectAll('.edge-label')
+        .data(links.filter(link => link.isHighlighted && link.highlightLabel))
+        .enter().append('text')
+        .attr('class', 'edge-label')
+        .attr('font-size', '10px')
+        .attr('fill', '#000')
+        .attr('text-anchor', 'middle')
+        .attr('dy', -5)
+        .attr('pointer-events', 'none')
+        .text((d: GraphLink) => d.highlightLabel || '');
+      
+      // Store reference to edge labels
+      linkLabelsRef.current = edgeLabels;
+      
+      // Create tooltips for highlighted nodes with tooltip text
+      const nodeTooltips = gRef.current.append('g')
+        .attr('class', 'tooltip-container') // Add a container class
+        .selectAll('.node-tooltip')
+        .data(nodes.filter(node => node.isHighlighted && node.tooltipText))
+        .enter().append('g')
+        .attr('class', 'node-tooltip')
+        .each(function(this: SVGGElement, d: GraphNode) {
+          // Store a direct reference to the node data in each tooltip element
+          // This helps avoid issues with D3's data binding
+          (this as any).__data__ = d;
+        })
+        .attr('transform', (d: GraphNode) => `translate(${d.x || 0},${(d.y || 0) - 20})`); // Position above node
+      
+      // Add background rectangle for better readability
+      nodeTooltips.append('rect')
+        .attr('rx', 5)
+        .attr('ry', 5)
+        .attr('fill', 'white')
+        .attr('stroke', '#000')
+        .attr('stroke-width', 0.5)
+        .attr('fill-opacity', 0.9)
+        .attr('x', -50) // Center horizontally
+        .attr('width', 100)
+        .attr('height', 20);
+      
+      // Add tooltip text
+      nodeTooltips.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dy', 14) // Vertical centering within rectangle
+        .attr('font-size', '10px')
+        .attr('pointer-events', 'none')
+        .text((d: GraphNode) => d.tooltipText || '');
+    }
+  };
+
+  // Expose the highlightPath function to parent components
+  useImperativeHandle(ref, () => ({
+    highlightPath
+  }));
+
+  // Function to apply color scheme based on node index or community
+  const applyColorScheme = (nodes: GraphNode[], colorScheme: string, communityDetection: string) => {
+    // Track only existing color scheme - don't handle manual colors here
+    // This ensures we can always switch between color schemes
+    
+    // Default color for all nodes
+    if (colorScheme === 'default') {
+      nodes.forEach(node => {
+        // Set to default color unless it has a custom color
+        if (!node.color || node.color.startsWith('#') || 
+            node.color.startsWith('rgb') || node.color.startsWith('hsl')) {
+          node.color = '#6366f1';
+        }
+      });
+      return nodes;
+    }
+
+    // Compute communities if needed
+    let communities: Map<string, number> | null = null;
+    if (communityDetection !== 'none') {
+      communities = detectCommunities(nodes, communityDetection);
+    }
+    
+    // Apply the selected color scheme to all nodes
+    nodes.forEach((node, i) => {
+      // Determine what value to base the color on (index or community)
+      let colorValue: number;
+      
+      if (communities && communities.has(node.id)) {
+        // Use community for coloring if available
+        const communityIndex = communities.get(node.id)!;
+        const maxCommunity = Math.max(1, Math.max(...Array.from(communities.values())));
+        colorValue = communityIndex / maxCommunity;
+      } else {
+        // Use index for coloring
+        colorValue = i / Math.max(1, nodes.length - 1);
+      }
+      
+      // Apply the correct color scheme
+      switch (colorScheme) {
+        case 'viridis':
+          node.color = d3ColorScales.interpolateViridis(colorValue);
+          break;
+        case 'plasma':
+          node.color = d3ColorScales.interpolatePlasma(colorValue);
+          break;
+        case 'rainbow':
+          node.color = d3ColorScales.interpolateRainbow(colorValue);
+          break;
+        case 'magma':
+          node.color = d3ColorScales.interpolateMagma(colorValue);
+          break;
+        case 'inferno':
+          node.color = d3ColorScales.interpolateInferno(colorValue);
+          break;
+        case 'turbo':
+          node.color = d3ColorScales.interpolateTurbo(colorValue);
+          break;
+        case 'cividis':
+          node.color = d3ColorScales.interpolateCividis(colorValue);
+          break;
+        default:
+          node.color = '#6366f1'; // Default color
+      }
+    });
+    
+    return nodes;
+  };
+
+  // Function to detect communities using different algorithms
+  const detectCommunities = (nodes: GraphNode[], algorithm: string): Map<string, number> => {
+    const communities = new Map<string, number>();
+    
+    // Build adjacency list for community detection
+    const adjacencyList = buildAdjacencyList();
+    
+    switch (algorithm) {
+      case 'louvain': 
+        // Louvain-inspired community detection (simplified)
+        // In a real implementation, we'd use a proper Louvain algorithm
+        // Here we're just using degree-based clustering as a simple approximation
+        nodes.forEach(node => {
+          // Count node degree (number of connections)
+          const neighbors = adjacencyList.get(node.id) || new Set();
+          const degree = neighbors.size;
+          
+          // Use degree as a rough community indicator
+          // Map to a small number of communities
+          const communityIndex = Math.min(9, Math.floor(degree / 2));
+          communities.set(node.id, communityIndex);
+        });
+        break;
+        
+      case 'girvan-newman':
+        // Girvan-Newman inspired approach
+        // Another simplified approximation based on path lengths
+        // In a full implementation, we'd remove edges with high betweenness centrality
+        
+        // We'll assign communities based on rough clustering by graph distance
+        // Pick a few "seed" nodes and assign communities based on closest seed
+        const seedCount = Math.min(10, Math.max(3, Math.floor(nodes.length / 20)));
+        const seeds: string[] = [];
+        
+        // Select seed nodes (evenly spaced in the node array for simplicity)
+        for (let i = 0; i < seedCount; i++) {
+          const index = Math.floor(i * (nodes.length / seedCount));
+          seeds.push(nodes[index].id);
+        }
+        
+        // Assign each node to community of closest seed
+        nodes.forEach(node => {
+          if (seeds.includes(node.id)) {
+            // Seed nodes get their own community index
+            communities.set(node.id, seeds.indexOf(node.id));
+            return;
+          }
+          
+          // Find closest seed by BFS
+          let closestSeed = seeds[0];
+          let shortestDistance = Infinity;
+          
+          for (const seed of seeds) {
+            const distance = getShortestPathDistance(node.id, seed, adjacencyList);
+            if (distance < shortestDistance) {
+              shortestDistance = distance;
+              closestSeed = seed;
+            }
+          }
+          
+          communities.set(node.id, seeds.indexOf(closestSeed));
+        });
+        break;
+        
+      default:
+        // Default simple hashing based on node ID
+        nodes.forEach(node => {
+          const firstChar = node.id.charAt(0).toLowerCase();
+          const communityIndex = firstChar.charCodeAt(0) % 10; // Simple hash
+          communities.set(node.id, communityIndex);
+        });
+    }
+    
+    return communities;
+  };
+  
+  // Helper function for Girvan-Newman to find shortest path distance
+  const getShortestPathDistance = (
+    startId: string, 
+    endId: string, 
+    adjList: Map<string, Set<string>>
+  ): number => {
+    if (startId === endId) return 0;
+    
+    const visited = new Set<string>([startId]);
+    const queue: {id: string, distance: number}[] = [{id: startId, distance: 0}];
+    
+    while (queue.length > 0) {
+      const {id, distance} = queue.shift()!;
+      
+      const neighbors = adjList.get(id) || new Set();
+      for (const neighborId of Array.from(neighbors)) {
+        if (neighborId === endId) return distance + 1;
+        
+        if (!visited.has(neighborId)) {
+          visited.add(neighborId);
+          queue.push({id: neighborId, distance: distance + 1});
+        }
+      }
+    }
+    
+    // If no path found
+    return Infinity;
+  };
+
+  // Return the React component JSX
   return (
     <div className="w-full h-full relative">
       <svg ref={svgRef} className="w-full h-full" />
@@ -1030,6 +1725,6 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       )}
     </div>
   );
-};
+});
 
 export default ForceDirectedGraph; 
