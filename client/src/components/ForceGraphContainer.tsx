@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ForceDirectedGraph, { PhysicsSettings, defaultPhysicsSettings } from './ForceDirectedGraph';
+import ForceDirectedGraph, { PhysicsSettings, getDefaultPhysicsSettings } from './ForceDirectedGraph';
 import PhysicsControls from './PhysicsControls';
 import type { Graph, Node, Edge } from '@shared/schema';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,8 @@ import {
   MousePointerClick,
   PaintBucket,
   Maximize2,
-  Network
+  Network,
+  Layers
 } from 'lucide-react';
 import {
   Tooltip,
@@ -69,7 +70,7 @@ const ForceGraphContainer: React.FC<ForceGraphContainerProps> = ({
   graph: propGraph, 
   useSampleData = false,
 }) => {
-  const [settings, setSettings] = useState<PhysicsSettings>(defaultPhysicsSettings);
+  const [settings, setSettings] = useState<PhysicsSettings>(getDefaultPhysicsSettings());
   
   // Use sample data or provided graph
   const [graph, setGraph] = useState<Graph>(propGraph || generateSampleGraph());
@@ -141,6 +142,11 @@ const ForceGraphContainer: React.FC<ForceGraphContainerProps> = ({
                   <div className="flex items-center gap-2.5">
                     <Network className="h-4 w-4 text-blue-500 flex-shrink-0" />
                     <span className="text-sm">Hold N + click to select neighbors (click again for more)</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2.5">
+                    <Layers className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <span className="text-sm">Hold M + click to select only k-th layer neighbors</span>
                   </div>
                   
                   <div className="flex items-center gap-2.5">

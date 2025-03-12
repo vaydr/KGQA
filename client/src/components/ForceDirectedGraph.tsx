@@ -10,15 +10,23 @@ export interface PhysicsSettings {
   chargeStrength: number;
   gravity: number;
   velocityDecay: number;
+  edgeThickness: number; // New setting for edge thickness
+  nodeRadius: number;    // New setting for node radius
 }
 
-export const defaultPhysicsSettings: PhysicsSettings = {
-  linkDistance: 30,  // Smaller default for larger graphs
-  linkStrength: 0.2, // Slightly weaker links
+// Convert to a function that returns the default settings to make it compatible with Fast Refresh
+export const getDefaultPhysicsSettings = (): PhysicsSettings => ({
+  linkDistance: 30,    // Smaller default for larger graphs
+  linkStrength: 0.2,   // Slightly weaker links
   chargeStrength: -50, // Less repulsion
-  gravity: 0.05,     // Less gravity
-  velocityDecay: 0.5, // More damping
-};
+  gravity: 0.05,       // Less gravity
+  velocityDecay: 0.5,  // More damping
+  edgeThickness: 0.5,  // Default edge thickness
+  nodeRadius: 5,       // Default node radius
+});
+
+// Keep this for backward compatibility
+export const defaultPhysicsSettings = getDefaultPhysicsSettings();
 
 // --- Internal graph data types ---
 interface GraphNode extends d3.SimulationNodeDatum {
@@ -58,6 +66,12 @@ interface NeighborhoodSelection {
   currentDepth: number;
 }
 
+// Interface for exact-layer selection state
+interface ExactLayerSelection {
+  sourceNodeId: string | null;
+  currentLayer: number;
+}
+
 const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
   graph,
   width = 800,
@@ -81,11 +95,18 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
   // Track key state for different selection modes
   const isSpacePressed = useRef(false);
   const isNPressed = useRef(false);
+  const isMPressed = useRef(false);
   
   // Track neighborhood selection state
   const neighborhoodSelection = useRef<NeighborhoodSelection>({
     sourceNodeId: null,
     currentDepth: 0
+  });
+  
+  // Track exact layer selection state for M key
+  const exactLayerSelection = useRef<ExactLayerSelection>({
+    sourceNodeId: null,
+    currentLayer: 0
   });
   
   // Reference to store graph elements for updates
@@ -143,6 +164,9 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
         } else if (e.code === 'KeyN') {
           e.preventDefault(); // Prevent typing 'n' in inputs when over graph
           isNPressed.current = true;
+        } else if (e.code === 'KeyM') {
+          e.preventDefault(); // Prevent typing 'm' in inputs when over graph
+          isMPressed.current = true;
         }
       }
     };
@@ -152,6 +176,8 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
         isSpacePressed.current = false;
       } else if (e.code === 'KeyN') {
         isNPressed.current = false;
+      } else if (e.code === 'KeyM') {
+        isMPressed.current = false;
       }
     };
 
@@ -191,7 +217,9 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       .scaleExtent([0.1, 10])
       .on('zoom', (event) => {
         g.attr('transform', event.transform);
-      });
+      })
+      // Explicitly disable D3's default double-click zoom behavior
+      .filter(event => !(event.type === 'dblclick'));
     
     svg.call(zoomHandler);
     
@@ -226,7 +254,7 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
     // Draw links - use lines for better performance with large datasets
     const link = g.append('g')
       .attr('stroke', '#94a3b8')
-      .attr('stroke-width', 0.5) // Thinner lines for large graphs
+      .attr('stroke-width', settings.edgeThickness) // Use edgeThickness setting
       .attr('stroke-opacity', 0.6) // More transparent
       .selectAll('line')
       .data(links)
@@ -239,7 +267,7 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       .selectAll('circle')
       .data(nodes)
       .join('circle')
-      .attr('r', (d: GraphNode) => d.r)
+      .attr('r', (d: GraphNode) => settings.nodeRadius) // Use nodeRadius setting
       .attr('fill', (d: GraphNode) => d.color)
       .attr('fill-opacity', 0.8) // Slightly transparent
       .attr('stroke', (d: GraphNode) => d.isSelected ? '#000000' : 'none') // Use isSelected for stroke
@@ -248,6 +276,9 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
     nodesRef.current = node;
 
     // ---- SIMPLIFIED DRAG BEHAVIOR ----
+    // Create a map to store initial positions of nodes being group-dragged
+    const dragStartPositions = new Map<string, { x: number, y: number }>();
+    
     function dragstarted(event: any, d: GraphNode) {
       // Prevent zoom panning during drag
       event.sourceEvent.stopPropagation();
@@ -274,6 +305,34 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
           !isNPressed.current) {
         neighborhoodSelection.current.currentDepth = 0;
       }
+      
+      // Store initial positions of all selected nodes when space is pressed
+      // This helps avoid the teleporting issue with M and N key selections
+      if (isSpacePressed.current) {
+        dragStartPositions.clear();
+        
+        // Save initial positions of all selected nodes
+        nodes.forEach(node => {
+          if (node.isSelected) {
+            // Make sure the node has defined coordinates
+            const x = node.fx !== undefined && node.fx !== null 
+              ? node.fx 
+              : (node.x !== undefined && node.x !== null ? node.x : 0);
+            const y = node.fy !== undefined && node.fy !== null 
+              ? node.fy 
+              : (node.y !== undefined && node.y !== null ? node.y : 0);
+            
+            // Store the initial position
+            dragStartPositions.set(node.id, { x, y });
+            
+            // Also ensure all selected nodes have their positions fixed
+            if (node.fx === undefined || node.fy === undefined) {
+              node.fx = node.x || 0;
+              node.fy = node.y || 0;
+            }
+          }
+        });
+      }
     }
     
     function dragged(event: any, d: GraphNode) {
@@ -281,37 +340,33 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       const currentX = event.x;
       const currentY = event.y;
       
-      // Calculate change since LAST position (not since original position)
-      // This is important to ensure smooth movement
-      const deltaX = currentX - (d.fx || d.x || 0);
-      const deltaY = currentY - (d.fy || d.y || 0);
-      
       // Always update the dragged node first
       d.fx = currentX;
       d.fy = currentY;
       
       // Group movement with space key
       if (isSpacePressed.current) {
+        // Get the initial position of the dragged node
+        const startPos = dragStartPositions.get(d.id);
+        if (!startPos) return;
+        
+        // Calculate the total offset from the original position
+        const totalDeltaX = currentX - startPos.x;
+        const totalDeltaY = currentY - startPos.y;
+        
         // Move all selected nodes EXCEPT the one we're directly dragging
         nodes.forEach(node => {
-          if (node === d) return; // Skip the node we're directly dragging
+          if (node.id === d.id) return; // Skip the node we're directly dragging
           
           // Only move nodes that are part of the selection
-          if (node.isSelected === true) {
-            // If node doesn't have fixed position yet, initialize it
-            if (node.fx === undefined || node.fy === undefined) {
-              if (node.x !== undefined && node.y !== undefined) {
-                node.fx = node.x;
-                node.fy = node.y;
-              } else {
-                // Safety check for uninitialized coordinates
-                return;
-              }
-            }
+          if (node.isSelected) {
+            // Get this node's start position from our map
+            const nodeStartPos = dragStartPositions.get(node.id);
+            if (!nodeStartPos) return;
             
-            // Apply the exact same movement delta to this node
-            node.fx! += deltaX;
-            node.fy! += deltaY;
+            // Apply the same total delta from the original position
+            node.fx = (nodeStartPos.x + totalDeltaX) as number;
+            node.fy = (nodeStartPos.y + totalDeltaY) as number;
           }
         });
       }
@@ -323,6 +378,11 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       // Keep the node fixed at its final position (already selected)
       d.fx = event.x;
       d.fy = event.y;
+      
+      // Clear the drag start positions
+      if (isSpacePressed.current) {
+        dragStartPositions.clear();
+      }
     }
     
     // Apply the drag behavior
@@ -393,15 +453,50 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
         // Update simulation with a gentle reheat
         sim.alpha(0.2).restart();
       }
+      // Check if M key is pressed for exact layer selection
+      else if (isMPressed.current) {
+        // Stop event propagation
+        if (event.stopPropagation) {
+          event.stopPropagation();
+        } else if (event.sourceEvent?.stopPropagation) {
+          event.sourceEvent.stopPropagation();
+        }
+        
+        // Get the clicked node's ID
+        const clickedNodeId = d.id;
+        
+        // If the node is not currently selected, or if it's a different node than the last one,
+        // reset the layer counter to start fresh
+        if (!d.isSelected || exactLayerSelection.current.sourceNodeId !== clickedNodeId) {
+          exactLayerSelection.current = {
+            sourceNodeId: clickedNodeId,
+            currentLayer: 1  // Start with layer 1 (immediate neighbors)
+          };
+        } else {
+          // Increment layer if continuing with the same node
+          exactLayerSelection.current.currentLayer += 1;
+        }
+        
+        // Select only nodes at exactly the specified layer
+        selectExactLayer(clickedNodeId, exactLayerSelection.current.currentLayer);
+        
+        // Update simulation with a gentle reheat
+        sim.alpha(0.2).restart();
+      }
     });
 
     // SVG shift+click to unfix/deselect all nodes
     svg.on('click', (event: MouseEvent) => {
       if (event.shiftKey) {
-        // Reset neighborhood selection state completely
+        // Reset all selection states
         neighborhoodSelection.current = {
           sourceNodeId: null,
           currentDepth: 0
+        };
+        
+        exactLayerSelection.current = {
+          sourceNodeId: null,
+          currentLayer: 0
         };
       
         // Deselect all nodes (SOURCE OF TRUTH)
@@ -425,7 +520,86 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       }
     });
 
-    // Handle double-click on nodes to show color picker
+    // Helper function to fit the graph to the viewport
+    const fitGraphToView = () => {
+      if (!nodes.length) return;
+      
+      // Get bounds of all nodes
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      
+      nodes.forEach(node => {
+        if (node.x === undefined || node.y === undefined) return;
+        
+        minX = Math.min(minX, node.x - node.r);
+        minY = Math.min(minY, node.y - node.r);
+        maxX = Math.max(maxX, node.x + node.r);
+        maxY = Math.max(maxY, node.y + node.r);
+      });
+      
+      // Add padding
+      const padding = 40;
+      minX -= padding;
+      minY -= padding;
+      maxX += padding;
+      maxY += padding;
+      
+      // Calculate dimensions and scale
+      const graphWidth = maxX - minX;
+      const graphHeight = maxY - minY;
+      
+      // Calculate the scale to fit the graph in the viewport
+      const scaleX = width / graphWidth;
+      const scaleY = height / graphHeight;
+      const scale = Math.min(scaleX, scaleY, 2); // Limit max zoom to 2x for initial view
+      
+      // Calculate center of the graph
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      
+      // Transform to center and fit the graph
+      const transform = d3.zoomIdentity
+        .translate(width / 2, height / 2)
+        .scale(scale)
+        .translate(-centerX, -centerY);
+      
+      return transform;
+    };
+    
+    // Apply initial fit after layout has stabilized
+    sim.on('end', () => {
+      // Wait a bit for the simulation to settle, then fit to view
+      setTimeout(() => {
+        const transform = fitGraphToView();
+        if (transform) {
+          svg.transition().duration(750).call(zoomHandler.transform, transform);
+        }
+      }, 300);
+    });
+    
+    // Create a function for resetting zoom that can be called directly
+    const resetZoom = () => {
+      const transform = fitGraphToView();
+      if (transform) {
+        // Apply the transform with a smooth transition
+        svg.transition().duration(750).call(zoomHandler.transform, transform);
+      }
+    };
+    
+    // Clear any existing dblclick listeners to avoid conflicts
+    svg.on("dblclick.zoom", null);
+    
+    // Add double-click to fit view - directly on the SVG element
+    svg.on("dblclick", (event) => {
+      // Only reset if the click is on the background, not on a node
+      const target = event.target as Element;
+      if (target === svgRef.current || target.tagName === 'svg' || target.tagName === 'g') {
+        event.preventDefault();
+        event.stopPropagation();
+        resetZoom();
+      }
+    });
+
+    // Make sure node double-clicks don't trigger the canvas double-click
     node.on('dblclick', function(event: any, d: GraphNode) {
       // Prevent event bubbling to avoid triggering the zoom reset
       event.stopPropagation();
@@ -493,80 +667,15 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
     // Initial zoom to fit all nodes
     svg.call(zoomHandler);
     
-    // Helper function to fit the graph to the viewport
-    const fitGraphToView = () => {
-      if (!nodes.length) return;
-      
-      // Get bounds of all nodes
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      
-      nodes.forEach(node => {
-        if (node.x === undefined || node.y === undefined) return;
-        
-        minX = Math.min(minX, node.x - node.r);
-        minY = Math.min(minY, node.y - node.r);
-        maxX = Math.max(maxX, node.x + node.r);
-        maxY = Math.max(maxY, node.y + node.r);
-      });
-      
-      // Add padding
-      const padding = 40;
-      minX -= padding;
-      minY -= padding;
-      maxX += padding;
-      maxY += padding;
-      
-      // Calculate dimensions and scale
-      const graphWidth = maxX - minX;
-      const graphHeight = maxY - minY;
-      
-      // Calculate the scale to fit the graph in the viewport
-      const scaleX = width / graphWidth;
-      const scaleY = height / graphHeight;
-      const scale = Math.min(scaleX, scaleY, 2); // Limit max zoom to 2x for initial view
-      
-      // Calculate center of the graph
-      const centerX = (minX + maxX) / 2;
-      const centerY = (minY + maxY) / 2;
-      
-      // Transform to center and fit the graph
-      const transform = d3.zoomIdentity
-        .translate(width / 2, height / 2)
-        .scale(scale)
-        .translate(-centerX, -centerY);
-      
-      return transform;
-    };
-    
-    // Apply initial fit after layout has stabilized
-    sim.on('end', () => {
-      // Wait a bit for the simulation to settle, then fit to view
-      setTimeout(() => {
-        const transform = fitGraphToView();
-        if (transform) {
-          svg.transition().duration(750).call(zoomHandler.transform, transform);
-        }
-      }, 300);
-    });
-    
-    // Reset zoom on double click
-    svg.on('dblclick.zoom', function() {
-      // Calculate the bounds of all nodes
-      if (!nodes.length) return;
-      
-      const transform = fitGraphToView();
-      if (transform) {
-        // Apply the transform with a smooth transition
-        svg.transition().duration(750).call(zoomHandler.transform, transform);
-      }
-    });
-    
     // Start with a higher alpha for initial layout
     sim.alpha(0.5).restart();
 
     // Cleanup function
     return () => {
       sim.stop();
+      if (svgRef.current) {
+        d3.select(svgRef.current).on("dblclick", null);
+      }
     };
   }, [nodes, links, width, height]);
 
@@ -600,7 +709,16 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
     // 4. Update simulation parameters
     sim.velocityDecay(settings.velocityDecay);
     
-    // 5. Gently reheat the simulation for a smooth transition
+    // 5. Update visual elements
+    if (nodesRef.current) {
+      nodesRef.current.attr('r', settings.nodeRadius);
+    }
+    
+    if (linksRef.current) {
+      linksRef.current.attr('stroke-width', settings.edgeThickness);
+    }
+    
+    // 6. Gently reheat the simulation for a smooth transition
     sim.alpha(0.3).restart();
     
     console.log("Updated force parameters:", settings);
@@ -639,8 +757,8 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
         }
         
         // Fix its position to mark as selected
-        clickedNode.fx = clickedNode.x;
-        clickedNode.fy = clickedNode.y;
+        clickedNode.fx = clickedNode.x || 0;
+        clickedNode.fy = clickedNode.y || 0;
       }
       
       nodesToUpdate = [clickedNode];
@@ -802,6 +920,99 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
     }
     
     return nodesAtDepth;
+  }
+
+  /**
+   * Selects ONLY nodes at exactly k steps away from the source node
+   */
+  const selectExactLayer = (sourceNodeId: string, layerDepth: number) => {
+    if (!nodes.length || !links.length || layerDepth < 1) return;
+    
+    // Find the source node
+    const sourceNode = nodes.find(n => n.id === sourceNodeId);
+    if (!sourceNode) return;
+    
+    // First, deselect all nodes
+    nodes.forEach(node => {
+      // Skip the source node
+      if (node.id === sourceNodeId) return;
+      
+      // Deselect this node
+      node.isSelected = false;
+      node.fx = null;
+      node.fy = null;
+      
+      // Update visual indicator
+      if (nodesRef.current) {
+        const nodeIdx = nodes.findIndex(n => n.id === node.id);
+        if (nodeIdx >= 0) {
+          d3.select(nodesRef.current.nodes()[nodeIdx])
+            .attr('stroke', 'none');
+        }
+      }
+    });
+    
+    // Always select and fix the source node
+    sourceNode.isSelected = true;
+    
+    // Only fix the position if it's not already fixed
+    if (sourceNode.fx === undefined || sourceNode.fy === undefined) {
+      // Make sure the node has actual coordinates before fixing
+      if (sourceNode.x !== undefined && sourceNode.y !== undefined) {
+        sourceNode.fx = sourceNode.x;
+        sourceNode.fy = sourceNode.y;
+      }
+    }
+    
+    // Update visual indicator for source node
+    if (nodesRef.current) {
+      const sourceNodeIdx = nodes.findIndex(n => n.id === sourceNodeId);
+      if (sourceNodeIdx >= 0) {
+        d3.select(nodesRef.current.nodes()[sourceNodeIdx])
+          .attr('stroke', '#000000')
+          .attr('stroke-width', 1.5);
+      }
+    }
+    
+    // If layer depth is 0, we're done - just select the source node
+    if (layerDepth === 0) return;
+    
+    // Build the adjacency list only once
+    const adjacencyList = buildAdjacencyList();
+    
+    // Find all nodes at each depth level up to the target depth
+    const nodesByDepth = findNodesAtDepths(sourceNodeId, layerDepth, adjacencyList);
+    
+    // Get the nodes at exactly the requested layer
+    const nodesAtExactLayer = nodesByDepth.get(layerDepth) || new Set<string>();
+    
+    // Select and fix only nodes at exactly this layer depth
+    for (const nodeId of Array.from(nodesAtExactLayer)) {
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node) continue;
+      
+      // Mark as selected
+      node.isSelected = true;
+      
+      // Fix position only if it's not already fixed
+      if (node.fx === undefined || node.fy === undefined) {
+        // Make sure the node has actual coordinates before fixing
+        if (node.x !== undefined && node.y !== undefined) {
+          node.fx = node.x;
+          node.fy = node.y;
+        }
+      }
+      
+      // Update visual selection indicator
+      if (nodesRef.current) {
+        const nodeIdx = nodes.findIndex(n => n.id === nodeId);
+        if (nodeIdx >= 0) {
+          d3.select(nodesRef.current.nodes()[nodeIdx])
+            .attr('stroke', '#000000')
+            .attr('stroke-width', 1.5);
+        }
+      }
+    }
   }
 
   return (
