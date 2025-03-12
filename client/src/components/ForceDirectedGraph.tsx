@@ -52,6 +52,12 @@ interface ColorPickerState {
   color: string;
 }
 
+// Interface for neighborhood selection state
+interface NeighborhoodSelection {
+  sourceNodeId: string | null;
+  currentDepth: number;
+}
+
 const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
   graph,
   width = 800,
@@ -72,8 +78,15 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
     color: '#6366f1',
   });
   
-  // Track space key state for group selection
+  // Track key state for different selection modes
   const isSpacePressed = useRef(false);
+  const isNPressed = useRef(false);
+  
+  // Track neighborhood selection state
+  const neighborhoodSelection = useRef<NeighborhoodSelection>({
+    sourceNodeId: null,
+    currentDepth: 0
+  });
   
   // Reference to store graph elements for updates
   const gRef = useRef<any>(null);
@@ -105,25 +118,55 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
 
   // Handle keyboard events at component level
   useEffect(() => {
+    // Reference to the SVG element
+    const svgElement = svgRef.current;
+    if (!svgElement) return;
+    
+    // Create a ref to track if mouse is over the graph
+    const isMouseOverGraph = { current: false };
+    
+    // Mouse enter/leave handlers to track mouse position
+    const handleMouseEnter = () => {
+      isMouseOverGraph.current = true;
+    };
+    
+    const handleMouseLeave = () => {
+      isMouseOverGraph.current = false;
+    };
+    
+    // Only handle key events when mouse is over the graph or SVG is focused
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        e.preventDefault(); // Prevent scrolling
-        isSpacePressed.current = true;
+      if (isMouseOverGraph.current) {
+        if (e.code === 'Space') {
+          e.preventDefault(); // Prevent scrolling ONLY when mouse is over graph
+          isSpacePressed.current = true;
+        } else if (e.code === 'KeyN') {
+          e.preventDefault(); // Prevent typing 'n' in inputs when over graph
+          isNPressed.current = true;
+        }
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
-        e.preventDefault();
         isSpacePressed.current = false;
+      } else if (e.code === 'KeyN') {
+        isNPressed.current = false;
       }
     };
 
-    // Add listeners to window to ensure they're caught regardless of focus
+    // Add handlers to track mouse position relative to the graph
+    svgElement.addEventListener('mouseenter', handleMouseEnter);
+    svgElement.addEventListener('mouseleave', handleMouseLeave);
+    
+    // Add listeners to window for key events
     window.addEventListener('keydown', handleKeyDown, { passive: false });
-    window.addEventListener('keyup', handleKeyUp, { passive: false });
+    window.addEventListener('keyup', handleKeyUp);
 
     return () => {
+      // Clean up all event listeners
+      svgElement.removeEventListener('mouseenter', handleMouseEnter);
+      svgElement.removeEventListener('mouseleave', handleMouseLeave);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
@@ -213,43 +256,60 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
       
       // Mark the node as selected and fix its position
       d.isSelected = true;
-      d.fx = d.x;
-      d.fy = d.y;
+      
+      // Make sure it has fixed coordinates
+      if (d.x !== undefined && d.y !== undefined) {
+        d.fx = d.x;
+        d.fy = d.y;
+      }
 
       // Update visual selection indicator
       d3.select(event.sourceEvent.target)
         .attr('stroke', '#000000')
         .attr('stroke-width', 1.5);
+        
+      // If this is a node we've previously used for neighborhood selection,
+      // reset that state to avoid confusion
+      if (neighborhoodSelection.current.sourceNodeId === d.id && 
+          !isNPressed.current) {
+        neighborhoodSelection.current.currentDepth = 0;
+      }
     }
     
     function dragged(event: any, d: GraphNode) {
-      // 1. Calculate the new position for the dragged node
-      const newX = event.x;
-      const newY = event.y;
+      // Get the current x,y position from the D3 event
+      const currentX = event.x;
+      const currentY = event.y;
       
-      // 2. Find how much we moved from previous position
-      const deltaX = newX - (d.fx || d.x || 0);  
-      const deltaY = newY - (d.fy || d.y || 0);
+      // Calculate change since LAST position (not since original position)
+      // This is important to ensure smooth movement
+      const deltaX = currentX - (d.fx || d.x || 0);
+      const deltaY = currentY - (d.fy || d.y || 0);
       
-      // 3. Update the dragged node position first
-      d.fx = newX;
-      d.fy = newY;
+      // Always update the dragged node first
+      d.fx = currentX;
+      d.fy = currentY;
       
-      // 4. If space key is pressed, move all other selected nodes by the same amount
+      // Group movement with space key
       if (isSpacePressed.current) {
+        // Move all selected nodes EXCEPT the one we're directly dragging
         nodes.forEach(node => {
-          // Skip the node we're directly dragging
-          if (node === d) return;
+          if (node === d) return; // Skip the node we're directly dragging
           
-          // Only move nodes that are SELECTED (using the single source of truth)
-          if (node.isSelected) {
-            // Make sure they have fixed positions
+          // Only move nodes that are part of the selection
+          if (node.isSelected === true) {
+            // If node doesn't have fixed position yet, initialize it
             if (node.fx === undefined || node.fy === undefined) {
-              node.fx = node.x || 0;
-              node.fy = node.y || 0;
+              if (node.x !== undefined && node.y !== undefined) {
+                node.fx = node.x;
+                node.fy = node.y;
+              } else {
+                // Safety check for uninitialized coordinates
+                return;
+              }
             }
             
-            // Add the exact same delta
+            // Apply the exact same movement delta to this node
             node.fx! += deltaX;
             node.fy! += deltaY;
           }
@@ -273,8 +333,9 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
         .on('end', dragended) as any
     );
 
-    // Add shift+click handler to unfix/deselect nodes
+    // Add node click handler with neighborhood selection functionality
     node.on('click', (event: any, d: GraphNode) => {
+      // Check if shift key is pressed for deselection
       if (event.sourceEvent?.shiftKey || event.shiftKey) {
         // Use event.stopPropagation() directly if it's a native event
         if (event.stopPropagation) {
@@ -285,6 +346,11 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
         
         // Unselect this node (SOURCE OF TRUTH)
         d.isSelected = false;
+        
+        // Reset the neighborhood selection state for this node
+        if (neighborhoodSelection.current.sourceNodeId === d.id) {
+          neighborhoodSelection.current.currentDepth = 0;
+        }
         
         // Then clear fixed position as a result of selection change
         d.fx = null;
@@ -297,11 +363,47 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
         // Restart with higher energy for this node
         sim.alpha(0.3).restart();
       }
+      // Check if N key is pressed for neighborhood selection
+      else if (isNPressed.current) {
+        // Stop event propagation
+        if (event.stopPropagation) {
+          event.stopPropagation();
+        } else if (event.sourceEvent?.stopPropagation) {
+          event.sourceEvent.stopPropagation();
+        }
+        
+        // Get the clicked node's ID
+        const clickedNodeId = d.id;
+        
+        // If the node is not currently selected, or if it's a different node than the last one,
+        // reset the depth counter to start fresh
+        if (!d.isSelected || neighborhoodSelection.current.sourceNodeId !== clickedNodeId) {
+          neighborhoodSelection.current = {
+            sourceNodeId: clickedNodeId,
+            currentDepth: 1  // Start with depth 1 (immediate neighbors)
+          };
+        } else {
+          // Only increment depth if we're continuing with the same selected node
+          neighborhoodSelection.current.currentDepth += 1;
+        }
+        
+        // Find and select the node's neighborhood up to the current depth
+        selectNodeNeighborhood(clickedNodeId, neighborhoodSelection.current.currentDepth);
+        
+        // Update simulation with a gentle reheat
+        sim.alpha(0.2).restart();
+      }
     });
 
     // SVG shift+click to unfix/deselect all nodes
     svg.on('click', (event: MouseEvent) => {
       if (event.shiftKey) {
+        // Reset neighborhood selection state completely
+        neighborhoodSelection.current = {
+          sourceNodeId: null,
+          currentDepth: 0
+        };
+      
         // Deselect all nodes (SOURCE OF TRUTH)
         nodes.forEach(node => {
           node.isSelected = false;
@@ -466,7 +568,7 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
     return () => {
       sim.stop();
     };
-  }, [nodes, links, width, height]); // No dependency on isSpacePressed anymore since it's a ref
+  }, [nodes, links, width, height]);
 
   // Update simulation parameters when settings change - without recreating the graph
   useEffect(() => {
@@ -573,6 +675,134 @@ const ForceDirectedGraph: React.FC<ForceDirectedGraphProps> = ({
   const handleCloseColorPicker = () => {
     setColorPicker(prev => ({ ...prev, isOpen: false }));
   };
+
+  /**
+   * Selects all nodes within a specified graph distance from a source node
+   */
+  const selectNodeNeighborhood = (sourceNodeId: string, depth: number) => {
+    if (!nodes.length || !links.length) return;
+    
+    // Find the source node
+    const sourceNode = nodes.find(n => n.id === sourceNodeId);
+    if (!sourceNode) return;
+    
+    // Always select the source node first
+    sourceNode.isSelected = true;
+    
+    // Only fix the position if it's not already fixed
+    if (sourceNode.fx === undefined || sourceNode.fy === undefined) {
+      // Make sure the node has actual coordinates before fixing
+      if (sourceNode.x !== undefined && sourceNode.y !== undefined) {
+        sourceNode.fx = sourceNode.x;
+        sourceNode.fy = sourceNode.y;
+      }
+    }
+    
+    // Update visual selection indicator for source node
+    if (nodesRef.current) {
+      const sourceNodeIdx = nodes.findIndex(n => n.id === sourceNodeId);
+      if (sourceNodeIdx >= 0) {
+        d3.select(nodesRef.current.nodes()[sourceNodeIdx])
+          .attr('stroke', '#000000')
+          .attr('stroke-width', 1.5);
+      }
+    }
+    
+    // If depth is 0, we're done - just select the source node
+    if (depth === 0) return;
+    
+    // Build the adjacency list only once
+    const adjacencyList = buildAdjacencyList();
+    
+    // Find all nodes at each depth level up to the target depth
+    const nodesByDepth = findNodesAtDepths(sourceNodeId, depth, adjacencyList);
+    
+    // Select and fix all nodes at each depth level
+    for (let i = 1; i <= depth; i++) {
+      const nodesAtThisDepth = nodesByDepth.get(i) || new Set<string>();
+      
+      for (const nodeId of Array.from(nodesAtThisDepth)) {
+        const node = nodes.find(n => n.id === nodeId);
+        if (!node) continue;
+        
+        // Mark as selected
+        node.isSelected = true;
+        
+        // Fix position only if it's not already fixed
+        if (node.fx === undefined || node.fy === undefined) {
+          // Make sure the node has actual coordinates before fixing
+          if (node.x !== undefined && node.y !== undefined) {
+            node.fx = node.x;
+            node.fy = node.y;
+          }
+        }
+        
+        // Update visual selection indicator
+        if (nodesRef.current) {
+          const nodeIdx = nodes.findIndex(n => n.id === nodeId);
+          if (nodeIdx >= 0) {
+            d3.select(nodesRef.current.nodes()[nodeIdx])
+              .attr('stroke', '#000000')
+              .attr('stroke-width', 1.5);
+          }
+        }
+      }
+    }
+  }
+
+  // Helper function to build the adjacency list
+  function buildAdjacencyList() {
+    const adjList = new Map<string, Set<string>>();
+    
+    // Initialize all nodes in the adjacency list
+    nodes.forEach(node => {
+      adjList.set(node.id, new Set<string>());
+    });
+    
+    // Add edges to the adjacency list (undirected graph)
+    links.forEach(link => {
+      const source = typeof link.source === 'object' ? link.source.id : link.source;
+      const target = typeof link.target === 'object' ? link.target.id : link.target;
+      
+      // Add both directions (undirected graph)
+      adjList.get(source)?.add(target);
+      adjList.get(target)?.add(source);
+    });
+    
+    return adjList;
+  }
+  
+  // Helper function to find nodes at each depth using BFS
+  function findNodesAtDepths(startNodeId: string, maxDepth: number, adjList: Map<string, Set<string>>) {
+    const nodesAtDepth = new Map<number, Set<string>>();
+    for (let i = 0; i <= maxDepth; i++) {
+      nodesAtDepth.set(i, new Set<string>());
+    }
+    nodesAtDepth.get(0)?.add(startNodeId);
+    
+    // BFS traversal
+    const visited = new Set<string>([startNodeId]);
+    const queue: {nodeId: string, distance: number}[] = [{nodeId: startNodeId, distance: 0}];
+    
+    while (queue.length > 0) {
+      const {nodeId, distance} = queue.shift()!;
+      
+      // Skip if we're already at max depth
+      if (distance >= maxDepth) continue;
+      
+      // Process neighbors
+      const neighbors = adjList.get(nodeId) || new Set<string>();
+      for (const neighborId of Array.from(neighbors)) {
+        if (!visited.has(neighborId)) {
+          visited.add(neighborId);
+          queue.push({nodeId: neighborId, distance: distance + 1});
+          nodesAtDepth.get(distance + 1)?.add(neighborId);
+        }
+      }
+    }
+    
+    return nodesAtDepth;
+  }
 
   return (
     <div className="w-full h-full relative">

@@ -3,7 +3,20 @@ import ForceDirectedGraph, { PhysicsSettings, defaultPhysicsSettings } from './F
 import PhysicsControls from './PhysicsControls';
 import type { Graph, Node, Edge } from '@shared/schema';
 import { Button } from '@/components/ui/button';
-import { HelpCircle } from 'lucide-react';
+import { 
+  HelpCircle, 
+  MousePointer, 
+  Move, 
+  Pointer, 
+  XCircle, 
+  Palette, 
+  Users, 
+  Space, 
+  MousePointerClick,
+  PaintBucket,
+  Maximize2,
+  Network
+} from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -99,25 +112,56 @@ const ForceGraphContainer: React.FC<ForceGraphContainerProps> = ({
     <div className="relative w-full h-full" ref={containerRef}>
       {/* Physics controls in top right */}
       <div className="absolute top-4 right-4 z-10 flex gap-2">
-        <TooltipProvider>
-          <Tooltip>
+        <TooltipProvider delayDuration={0}>
+          <Tooltip defaultOpen>
             <TooltipTrigger asChild>
-              <Button variant="outline" size="icon">
-                <HelpCircle className="h-4 w-4" />
-              </Button>
+              <div className="cursor-help flex items-center justify-center h-9 w-9">
+                <HelpCircle className="h-5 w-5 text-gray-500" />
+              </div>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs">
-              <div className="space-y-2 p-1">
-                <p className="font-medium text-sm">Graph Interactions:</p>
-                <ul className="text-xs space-y-1">
-                  <li><span className="font-medium">Pan:</span> Drag empty canvas area</li>
-                  <li><span className="font-medium">Zoom:</span> Scroll wheel or pinch</li>
-                  <li><span className="font-medium">Move node:</span> Drag any node</li>
-                  <li><span className="font-medium">Group move:</span> Hold space + drag (moves all fixed nodes)</li>
-                  <li><span className="font-medium">Unfix node:</span> Shift+click on node</li>
-                  <li><span className="font-medium">Unfix all:</span> Shift+click on canvas</li>
-                  <li><span className="font-medium">Change color:</span> Double-click on node</li>
-                </ul>
+            <TooltipContent side="bottom" align="end" className="max-w-[320px] p-0">
+              <div className="p-4 space-y-3">
+                <h3 className="font-semibold text-sm">Controls</h3>
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <MousePointer className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <span className="text-sm">Left click + drag to move nodes</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2.5">
+                    <Space className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <span className="text-sm">Hold space + drag on selected nodes to move group</span>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <MousePointerClick className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <span className="text-sm">Click node to select it</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2.5">
+                    <Network className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <span className="text-sm">Hold N + click to select neighbors (click again for more)</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2.5">
+                    <XCircle className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <span className="text-sm">Shift + click node to deselect</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2.5">
+                    <Move className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <span className="text-sm">Shift + click canvas to deselect all</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2.5">
+                    <PaintBucket className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <span className="text-sm">Double-click group to change node colors</span>
+                  </div>
+                  <div className="flex items-center gap-2.5">
+                    <Maximize2 className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                    <span className="text-sm">Double-click canvas to reset view</span>
+                  </div>
+                </div>
               </div>
             </TooltipContent>
           </Tooltip>
